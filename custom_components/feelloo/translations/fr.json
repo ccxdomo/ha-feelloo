@@ -35,79 +35,79 @@
   "entity": {
     "binary_sensor": {
       "home": {
-        "name": "{name} À la maison"
+        "name": "À la maison"
       },
       "in_range": {
-        "name": "{name} À portée"
+        "name": "À portée"
       },
       "gateway_online": {
-        "name": "{name} Gateway en ligne"
+        "name": "Gateway en ligne"
       },
       "charging": {
-        "name": "{name} En charge"
+        "name": "En charge"
       },
       "is_ringing": {
-        "name": "{name} Sonne"
+        "name": "Sonne"
       },
       "battery_low": {
-        "name": "{name} Batterie faible"
+        "name": "Batterie faible"
       },
       "extended_search": {
-        "name": "{name} Recherche étendue"
+        "name": "Recherche étendue"
       }
     },
     "sensor": {
       "battery": {
-        "name": "{name} Batterie"
+        "name": "Batterie"
       },
       "latitude": {
-        "name": "{name} Latitude"
+        "name": "Latitude"
       },
       "longitude": {
-        "name": "{name} Longitude"
+        "name": "Longitude"
       },
       "gps_precision": {
-        "name": "{name} Précision GPS"
+        "name": "Précision GPS"
       },
       "last_seen": {
-        "name": "{name} Dernière vue"
+        "name": "Dernière vue"
       },
       "presence_time": {
-        "name": "{name} Heure de présence"
+        "name": "Heure de présence"
       },
       "activity": {
-        "name": "{name} Activité"
+        "name": "Activité"
       },
       "activity_rest": {
-        "name": "{name} Repos"
+        "name": "Repos"
       },
       "activity_calm": {
-        "name": "{name} Calme"
+        "name": "Calme"
       },
       "activity_action": {
-        "name": "{name} Actif"
+        "name": "Actif"
       },
       "extended_search_expiration": {
-        "name": "{name} Expiration recherche étendue"
+        "name": "Expiration recherche étendue"
       },
       "last_outing_start": {
-        "name": "{name} Début dernière sortie"
+        "name": "Début dernière sortie"
       },
       "last_outing_end": {
-        "name": "{name} Fin dernière sortie"
+        "name": "Fin dernière sortie"
       },
       "outing_count": {
-        "name": "{name} Nombre de sorties"
+        "name": "Nombre de sorties"
       }
     },
     "button": {
       "ring": {
-        "name": "{name} Faire sonner"
+        "name": "Faire sonner"
       }
     },
     "device_tracker": {
       "tracker": {
-        "name": "{name}"
+        "name": ""
       }
     }
   }

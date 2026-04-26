@@ -35,79 +35,79 @@
   "entity": {
     "binary_sensor": {
       "home": {
-        "name": "{name} Home"
+        "name": "Home"
       },
       "in_range": {
-        "name": "{name} In Range"
+        "name": "In Range"
       },
       "gateway_online": {
-        "name": "{name} Gateway Online"
+        "name": "Gateway Online"
       },
       "charging": {
-        "name": "{name} Charging"
+        "name": "Charging"
       },
       "is_ringing": {
-        "name": "{name} Is Ringing"
+        "name": "Is Ringing"
       },
       "battery_low": {
-        "name": "{name} Battery Low"
+        "name": "Battery Low"
       },
       "extended_search": {
-        "name": "{name} Extended Search"
+        "name": "Extended Search"
       }
     },
     "sensor": {
       "battery": {
-        "name": "{name} Battery"
+        "name": "Battery"
       },
       "latitude": {
-        "name": "{name} Latitude"
+        "name": "Latitude"
       },
       "longitude": {
-        "name": "{name} Longitude"
+        "name": "Longitude"
       },
       "gps_precision": {
-        "name": "{name} GPS Precision"
+        "name": "GPS Precision"
       },
       "last_seen": {
-        "name": "{name} Last Seen"
+        "name": "Last Seen"
       },
       "presence_time": {
-        "name": "{name} Presence Time"
+        "name": "Presence Time"
       },
       "activity": {
-        "name": "{name} Activity"
+        "name": "Activity"
       },
       "activity_rest": {
-        "name": "{name} Activity Rest"
+        "name": "Activity Rest"
       },
       "activity_calm": {
-        "name": "{name} Activity Calm"
+        "name": "Activity Calm"
       },
       "activity_action": {
-        "name": "{name} Activity Action"
+        "name": "Activity Action"
       },
       "extended_search_expiration": {
-        "name": "{name} Extended Search Expiration"
+        "name": "Extended Search Expiration"
       },
       "last_outing_start": {
-        "name": "{name} Last Outing Start"
+        "name": "Last Outing Start"
       },
       "last_outing_end": {
-        "name": "{name} Last Outing End"
+        "name": "Last Outing End"
       },
       "outing_count": {
-        "name": "{name} Outing Count"
+        "name": "Outing Count"
       }
     },
     "button": {
       "ring": {
-        "name": "{name} Ring"
+        "name": "Ring"
       }
     },
     "device_tracker": {
       "tracker": {
-        "name": "{name}"
+        "name": ""
       }
     }
   }
