@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
-from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator
+from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,11 +51,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:
         _LOGGER.warning("Territory coordinator failed first refresh, will retry on next interval")
 
+    # Session coordinator — polls territory session details every 30 min
+    session_coordinator = FeellooSessionCoordinator(hass, entry, auth)
+    try:
+        await session_coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _LOGGER.warning("Session coordinator failed first refresh, will retry on next interval")
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "auth": auth,
         "main": main_coordinator,
         "activity": activity_coordinator,
         "territory": territory_coordinator,
+        "session": session_coordinator,
     }
 
     # Register service
@@ -88,6 +96,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await data["main"].async_shutdown()
             await data["activity"].async_shutdown()
             await data["territory"].async_shutdown()
+            await data["session"].async_shutdown()
         hass.services.async_remove(DOMAIN, SERVICE_SET_PETITE_SOURIS)
     return unload_ok
 

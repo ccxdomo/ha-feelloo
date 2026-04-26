@@ -22,6 +22,7 @@ from .const import (
     CATS_UPDATE_INTERVAL,
     ACTIVITY_UPDATE_INTERVAL,
     TERRITORY_UPDATE_INTERVAL,
+    SESSION_UPDATE_INTERVAL,
     TOKEN_REFRESH_INTERVAL,
     CONF_EMAIL,
     CONF_PASSWORD,
@@ -31,6 +32,7 @@ from .const import (
     ENDPOINT_TERRITORY,
     ENDPOINT_RING,
     ENDPOINT_PETITE_SOURIS,
+    ENDPOINT_TERRITORY_PATH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -321,3 +323,59 @@ class FeellooTerritoryCoordinator(DataUpdateCoordinator):
             reverse=True,
         )
         return sorted_paths[0] if sorted_paths else None
+
+
+class FeellooSessionCoordinator(DataUpdateCoordinator):
+    """Coordinator for territory session details — polls every 30 minutes."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
+        """Initialize the coordinator."""
+        self.entry = entry
+        self.auth = auth
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_session",
+            update_interval=SESSION_UPDATE_INTERVAL,
+        )
+
+    async def _async_update_data(self) -> dict:
+        """Fetch territory session details for all cats."""
+        territory_coordinator: FeellooTerritoryCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["territory"]
+        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        cats = main_coordinator.cats
+        sessions = {}
+
+        for cat in cats:
+            cat_id = cat.get("cat_id")
+            cat_uid = cat.get("_id")
+            if cat_id is None or cat_uid is None:
+                continue
+
+            last_session = territory_coordinator.get_last_session(cat_uid)
+            if not last_session:
+                sessions[cat_uid] = None
+                continue
+
+            session_id = last_session.get("session_id")
+            if not session_id:
+                sessions[cat_uid] = None
+                continue
+
+            try:
+                detail = await self.auth.async_api_request(
+                    "GET",
+                    ENDPOINT_TERRITORY_PATH.format(cat_id=cat_id, session_id=session_id),
+                )
+                sessions[cat_uid] = detail
+            except UpdateFailed:
+                sessions[cat_uid] = None
+
+        return {"sessions": sessions}
+
+    def get_session(self, cat_uid: str) -> dict | None:
+        """Get session detail for a specific cat."""
+        if not self.data:
+            return None
+        return self.data.get("sessions", {}).get(cat_uid)

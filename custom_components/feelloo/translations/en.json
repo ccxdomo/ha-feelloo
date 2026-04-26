@@ -98,6 +98,18 @@
       },
       "outing_count": {
         "name": "Outing Count"
+      },
+      "last_session_duration": {
+        "name": "Last Session Duration"
+      },
+      "last_session_points_count": {
+        "name": "Last Session Points Count"
+      },
+      "last_session_start": {
+        "name": "Last Session Start"
+      },
+      "last_session_end": {
+        "name": "Last Session End"
       }
     },
     "switch": {

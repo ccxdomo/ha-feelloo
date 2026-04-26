@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator
+from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator
 
 
 async def async_setup_entry(
@@ -23,6 +23,7 @@ async def async_setup_entry(
     main: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
     activity: FeellooActivityCoordinator = hass.data[DOMAIN][entry.entry_id]["activity"]
     territory: FeellooTerritoryCoordinator = hass.data[DOMAIN][entry.entry_id]["territory"]
+    session: FeellooSessionCoordinator = hass.data[DOMAIN][entry.entry_id]["session"]
 
     entities = []
     for cat in main.cats:
@@ -45,6 +46,10 @@ async def async_setup_entry(
             FeellooLastOutingStartSensor(territory, cat_uid, name),
             FeellooLastOutingEndSensor(territory, cat_uid, name),
             FeellooOutingCountSensor(territory, cat_uid, name),
+            FeellooLastSessionDurationSensor(session, cat_uid, name),
+            FeellooLastSessionPointsCountSensor(session, cat_uid, name),
+            FeellooLastSessionStartSensor(session, cat_uid, name),
+            FeellooLastSessionEndSensor(session, cat_uid, name),
         ])
     async_add_entities(entities)
 
@@ -447,3 +452,148 @@ class FeellooOutingCountSensor(FeellooTerritoryBaseSensor):
         """Available if we have paths data."""
         paths = self.coordinator.get_paths(self._cat_uid)
         return paths is not None
+
+
+class FeellooSessionBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base for session detail sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: FeellooSessionCoordinator,
+        cat_uid: str,
+        cat_name: str,
+        key: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._cat_uid = cat_uid
+        self._key = key
+        self._attr_unique_id = f"{cat_uid}_{key}"
+        self._attr_translation_key = key
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, cat_uid)},
+            "name": cat_name,
+            "manufacturer": "Feelloo",
+            "model": "Cat Tracker",
+        }
+
+    def _get_session(self) -> dict | None:
+        """Get the session detail for this cat."""
+        return self.coordinator.get_session(self._cat_uid)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self._get_session() is not None
+
+
+class FeellooLastSessionDurationSensor(FeellooSessionBaseSensor):
+    """Duration in minutes of the last territory session."""
+
+    _attr_icon = "mdi:timer"
+    _attr_native_unit_of_measurement = "min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_session_duration")
+
+    @property
+    def native_value(self):
+        session = self._get_session()
+        if not session:
+            return None
+        start = session.get("start_date")
+        end = session.get("end_date")
+        if not start or not end:
+            return None
+        try:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            return int((end_dt - start_dt).total_seconds() / 60)
+        except (ValueError, TypeError):
+            return None
+
+
+class FeellooLastSessionPointsCountSensor(FeellooSessionBaseSensor):
+    """Number of GPS points in the last territory session."""
+
+    _attr_icon = "mdi:map-marker-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_session_points_count")
+
+    @property
+    def native_value(self):
+        session = self._get_session()
+        if not session:
+            return None
+        points = session.get("points", [])
+        return len(points) if points else 0
+
+    @property
+    def extra_state_attributes(self):
+        """Return session points as attributes."""
+        session = self._get_session()
+        if not session:
+            return {}
+        points = session.get("points", [])
+        return {
+            "points": [
+                {
+                    "latitude": p.get("geolocation", {}).get("latitude"),
+                    "longitude": p.get("geolocation", {}).get("longitude"),
+                    "precision_meter": p.get("geolocation", {}).get("precision_meter"),
+                    "source": p.get("geolocation", {}).get("source"),
+                    "date_time": p.get("date_time"),
+                }
+                for p in points
+            ],
+            "session_id": session.get("session_id"),
+        }
+
+
+class FeellooLastSessionStartSensor(FeellooSessionBaseSensor):
+    """Timestamp of last territory session start."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_session_start")
+
+    @property
+    def native_value(self):
+        session = self._get_session()
+        if not session:
+            return None
+        ts = session.get("start_date")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
+
+class FeellooLastSessionEndSensor(FeellooSessionBaseSensor):
+    """Timestamp of last territory session end."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_session_end")
+
+    @property
+    def native_value(self):
+        session = self._get_session()
+        if not session:
+            return None
+        ts = session.get("end_date")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None

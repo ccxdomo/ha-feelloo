@@ -20,6 +20,7 @@ CONF_PASSWORD = "password"
 CATS_UPDATE_INTERVAL = timedelta(minutes=5)
 ACTIVITY_UPDATE_INTERVAL = timedelta(minutes=15)
 TERRITORY_UPDATE_INTERVAL = timedelta(minutes=15)
+SESSION_UPDATE_INTERVAL = timedelta(minutes=30)
 TOKEN_REFRESH_INTERVAL = timedelta(minutes=50)
 
 # API endpoints
