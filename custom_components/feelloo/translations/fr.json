@@ -100,6 +100,16 @@
         "name": "Nombre de sorties"
       }
     },
+    "switch": {
+      "petite_souris": {
+        "name": "Petite Souris"
+      }
+    },
+    "number": {
+      "petite_souris_duration": {
+        "name": "Durée Petite Souris"
+      }
+    },
     "button": {
       "ring": {
         "name": "Faire sonner"

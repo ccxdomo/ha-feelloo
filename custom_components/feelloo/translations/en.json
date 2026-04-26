@@ -100,6 +100,16 @@
         "name": "Outing Count"
       }
     },
+    "switch": {
+      "petite_souris": {
+        "name": "Petite Souris"
+      }
+    },
+    "number": {
+      "petite_souris_duration": {
+        "name": "Petite Souris Duration"
+      }
+    },
     "button": {
       "ring": {
         "name": "Ring"

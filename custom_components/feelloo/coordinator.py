@@ -30,6 +30,7 @@ from .const import (
     ENDPOINT_TERRITORY_PATHS,
     ENDPOINT_TERRITORY,
     ENDPOINT_RING,
+    ENDPOINT_PETITE_SOURIS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -205,6 +206,14 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
     async def async_ring_cat(self, cat_id: int) -> None:
         """Trigger the ring on a cat's tag."""
         await self.auth.async_api_request("POST", ENDPOINT_RING.format(cat_id=cat_id), json_payload={})
+
+    async def async_set_petite_souris(self, cat_id: int, duration_hours: int) -> None:
+        """Set petite souris mode (duration_hours=0 to disable)."""
+        await self.auth.async_api_request(
+            "POST",
+            ENDPOINT_PETITE_SOURIS.format(cat_id=cat_id),
+            json_payload={"duration_hours": duration_hours},
+        )
 
     @property
     def cats(self) -> list[dict]:

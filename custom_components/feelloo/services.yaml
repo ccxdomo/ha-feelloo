@@ -1,0 +1,26 @@
+set_petite_souris:
+  name: Set Petite Souris
+  description: Activate or deactivate Petite Souris real-time GPS mode for a cat.
+  fields:
+    cat_id:
+      name: Cat ID
+      description: Numeric ID of the cat (cat_id field, not _id).
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+    duration_hours:
+      name: Duration
+      description: Duration in hours (0 to disable, 1-72 to enable).
+      required: true
+      example: 8
+      selector:
+        number:
+          min: 0
+          max: 72
+          step: 1
+          unit_of_measurement: "h"
+          mode: box
