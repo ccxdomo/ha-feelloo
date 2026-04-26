@@ -34,7 +34,7 @@ async def async_setup_entry(
 class FeellooRingButton(CoordinatorEntity, ButtonEntity):
     """Button to ring the cat tag."""
 
-    _attr_icon = "mdi:bell"
+    _attr_icon = "mdi:bell-ring"
     _attr_has_entity_name = True
     _attr_translation_key = "ring"
 
