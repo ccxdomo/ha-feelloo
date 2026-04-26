@@ -48,6 +48,7 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._cat_uid = cat_uid
         self._cat_id = cat_id
+        self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_petite_souris"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},
