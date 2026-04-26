@@ -1,7 +1,7 @@
 {
   "domain": "feelloo",
   "name": "Feelloo",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "config_flow": true,
   "documentation": "https://github.com/ccxdomo/ha-feelloo",
   "issue_tracker": "https://github.com/ccxdomo/ha-feelloo/issues",
