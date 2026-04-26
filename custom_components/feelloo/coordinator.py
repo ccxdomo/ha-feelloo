@@ -123,6 +123,8 @@ class FeellooAuthManager:
         token = await self.async_get_token()
         url = f"{BASE_URL}{endpoint}"
         headers = {"Authorization": f"Bearer {token}"}
+        if json_payload is not None:
+            headers["Content-Type"] = "application/json"
 
         try:
             async with self._session.request(method, url, headers=headers, json=json_payload, params=params) as resp:
@@ -134,8 +136,12 @@ class FeellooAuthManager:
                         if resp2.status == 401:
                             raise UpdateFailed("API request failed after token refresh")
                         resp2.raise_for_status()
+                        if resp2.status == 204:
+                            return None
                         return await resp2.json()
                 resp.raise_for_status()
+                if resp.status == 204:
+                    return None
                 return await resp.json()
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"API request error: {err}") from err
@@ -206,14 +212,6 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
     async def async_ring_cat(self, cat_id: int) -> None:
         """Trigger the ring on a cat's tag."""
         await self.auth.async_api_request("POST", ENDPOINT_RING.format(cat_id=cat_id), json_payload={})
-
-    async def async_set_petite_souris(self, cat_id: int, duration_hours: int) -> None:
-        """Set petite souris mode (duration_hours=0 to disable)."""
-        await self.auth.async_api_request(
-            "POST",
-            ENDPOINT_PETITE_SOURIS.format(cat_id=cat_id),
-            json_payload={"duration_hours": duration_hours},
-        )
 
     @property
     def cats(self) -> list[dict]:

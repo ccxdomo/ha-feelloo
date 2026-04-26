@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -66,7 +67,6 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
 
     def _get_duration(self) -> int:
         """Get the current duration value from the number entity."""
-        # Look for the number entity in hass.states
         entity_id = f"number.{self._cat_name.lower().replace(' ', '_')}_petite_souris_duration"
         state = self.hass.states.get(entity_id)
         if state and state.state not in (None, "unavailable", "unknown"):
@@ -99,13 +99,25 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
         """Return if entity is available."""
         return self._get_cat() is not None
 
+    async def _async_call_petite_souris(self, duration_hours: int) -> None:
+        """Call the Petite Souris API and handle 204 No Content explicitly."""
+        try:
+            response = await self.coordinator.auth.async_api_request(
+                "POST",
+                f"/users/cats/{self._cat_id}/territory/petite-souris-button",
+                json_payload={"duration_hours": duration_hours},
+            )
+            # 204 No Content = success, no body to parse
+            # async_api_request already handles 204 by returning None
+            await self.coordinator.async_request_refresh()
+        except Exception as exc:
+            raise HomeAssistantError(f"Erreur Petite Souris: {exc}") from exc
+
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
         duration = self._get_duration()
-        await self.coordinator.async_set_petite_souris(self._cat_id, duration)
-        await self.coordinator.async_request_refresh()
+        await self._async_call_petite_souris(duration)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the switch off."""
-        await self.coordinator.async_set_petite_souris(self._cat_id, 0)
-        await self.coordinator.async_request_refresh()
+        await self._async_call_petite_souris(0)
