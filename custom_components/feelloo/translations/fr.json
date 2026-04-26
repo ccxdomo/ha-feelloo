@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Feelloo",
+        "description": "Configurez votre compte Feelloo.",
+        "data": {
+          "email": "Email",
+          "password": "Mot de passe"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Email ou mot de passe invalide."
+    },
+    "abort": {
+      "already_configured": "Ce compte est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Feelloo",
+        "description": "Mettez à jour vos identifiants Feelloo.",
+        "data": {
+          "email": "Email",
+          "password": "Mot de passe"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Email ou mot de passe invalide."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "home": {
+        "name": "{name} À la maison"
+      },
+      "in_range": {
+        "name": "{name} À portée"
+      },
+      "gateway_online": {
+        "name": "{name} Gateway en ligne"
+      },
+      "charging": {
+        "name": "{name} En charge"
+      },
+      "is_ringing": {
+        "name": "{name} Sonne"
+      },
+      "battery_low": {
+        "name": "{name} Batterie faible"
+      },
+      "extended_search": {
+        "name": "{name} Recherche étendue"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "{name} Batterie"
+      },
+      "latitude": {
+        "name": "{name} Latitude"
+      },
+      "longitude": {
+        "name": "{name} Longitude"
+      },
+      "gps_precision": {
+        "name": "{name} Précision GPS"
+      },
+      "last_seen": {
+        "name": "{name} Dernière vue"
+      },
+      "presence_time": {
+        "name": "{name} Heure de présence"
+      },
+      "activity": {
+        "name": "{name} Activité"
+      },
+      "extended_search_expiration": {
+        "name": "{name} Expiration recherche étendue"
+      }
+    },
+    "button": {
+      "ring": {
+        "name": "{name} Faire sonner"
+      }
+    },
+    "device_tracker": {
+      "tracker": {
+        "name": "{name}"
+      }
+    }
+  }
+}

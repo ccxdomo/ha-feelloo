@@ -1,0 +1,13 @@
+{
+  "domain": "feelloo",
+  "name": "Feelloo",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/ccxdomo/ha-feelloo",
+  "issue_tracker": "https://github.com/ccxdomo/ha-feelloo/issues",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@ccxdomo"],
+  "iot_class": "cloud_polling",
+  "integration_type": "hub"
+}

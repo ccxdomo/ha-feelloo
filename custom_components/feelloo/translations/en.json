@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Feelloo",
+        "description": "Set up your Feelloo account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password."
+    },
+    "abort": {
+      "already_configured": "Account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Feelloo Options",
+        "description": "Update your Feelloo credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "home": {
+        "name": "{name} Home"
+      },
+      "in_range": {
+        "name": "{name} In Range"
+      },
+      "gateway_online": {
+        "name": "{name} Gateway Online"
+      },
+      "charging": {
+        "name": "{name} Charging"
+      },
+      "is_ringing": {
+        "name": "{name} Is Ringing"
+      },
+      "battery_low": {
+        "name": "{name} Battery Low"
+      },
+      "extended_search": {
+        "name": "{name} Extended Search"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "{name} Battery"
+      },
+      "latitude": {
+        "name": "{name} Latitude"
+      },
+      "longitude": {
+        "name": "{name} Longitude"
+      },
+      "gps_precision": {
+        "name": "{name} GPS Precision"
+      },
+      "last_seen": {
+        "name": "{name} Last Seen"
+      },
+      "presence_time": {
+        "name": "{name} Presence Time"
+      },
+      "activity": {
+        "name": "{name} Activity"
+      },
+      "extended_search_expiration": {
+        "name": "{name} Extended Search Expiration"
+      }
+    },
+    "button": {
+      "ring": {
+        "name": "{name} Ring"
+      }
+    },
+    "device_tracker": {
+      "tracker": {
+        "name": "{name}"
+      }
+    }
+  }
+}
