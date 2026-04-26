@@ -210,8 +210,8 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
                 )
 
     async def async_ring_cat(self, cat_id: int) -> None:
-        """Trigger the ring on a cat's tag."""
-        await self.auth.async_api_request("POST", ENDPOINT_RING.format(cat_id=cat_id), json_payload={})
+        """Trigger the ring on a cat's tag — GET toggle (press once = start, press again = stop)."""
+        await self.auth.async_api_request("GET", ENDPOINT_RING.format(cat_id=cat_id))
 
     @property
     def cats(self) -> list[dict]:
