@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FeellooCoordinator
+from .coordinator import FeellooMainCoordinator
 
 
 async def async_setup_entry(
@@ -19,14 +19,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Feelloo device trackers."""
-    coordinator: FeellooCoordinator = hass.data[DOMAIN][entry.entry_id]
+    main_coordinator: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
     entities = []
-    for cat in coordinator.cats:
+    for cat in main_coordinator.cats:
         cat_uid = cat.get("_id")
         name = cat.get("profile", {}).get("name", "Unknown")
         if not cat_uid:
             continue
-        entities.append(FeellooDeviceTracker(coordinator, cat_uid, name))
+        entities.append(FeellooDeviceTracker(main_coordinator, cat_uid, name))
     async_add_entities(entities)
 
 
@@ -38,14 +38,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
 
     def __init__(
         self,
-        coordinator: FeellooCoordinator,
+        coordinator: FeellooMainCoordinator,
         cat_uid: str,
         cat_name: str,
     ) -> None:
         """Initialize the tracker."""
         super().__init__(coordinator)
         self._cat_uid = cat_uid
-        self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_tracker"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},

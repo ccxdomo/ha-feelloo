@@ -12,17 +12,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FeellooCoordinator
+from .coordinator import FeellooMainCoordinator
 
-BINARY_SENSORS = [
-    ("home", "presence", "status", "home", None, "mdi:home"),
-    ("in_range", "presence", "status", "in_range", None, "mdi:bluetooth"),
-    ("gateway_online", "gateway", "online", None, BinarySensorDeviceClass.CONNECTIVITY, None),
-    ("charging", "gateway", "tag", "status", "charging", BinarySensorDeviceClass.BATTERY_CHARGING, None),
-    ("is_ringing", "gateway", "tag", "status", "is_ringing", None, "mdi:bell-ring"),
-    ("battery_low", "gateway", "tag", "display_battery_low_warning", None, BinarySensorDeviceClass.BATTERY, None),
-    ("extended_search", "gateway", "tag", "extended_search", "enabled", None, "mdi:map-search"),
-]
+BINARY_SENSOR_DEFINITIONS = {
+    "home": ("mdi:home", None),
+    "in_range": ("mdi:bluetooth", None),
+    "gateway_online": (None, BinarySensorDeviceClass.CONNECTIVITY),
+    "charging": (None, BinarySensorDeviceClass.BATTERY_CHARGING),
+    "is_ringing": ("mdi:bell-ring", None),
+    "battery_low": (None, BinarySensorDeviceClass.BATTERY),
+    "extended_search": ("mdi:map-search", None),
+}
 
 
 async def async_setup_entry(
@@ -31,16 +31,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Feelloo binary sensors."""
-    coordinator: FeellooCoordinator = hass.data[DOMAIN][entry.entry_id]
+    main_coordinator: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
     entities = []
-    for cat in coordinator.cats:
+    for cat in main_coordinator.cats:
         cat_uid = cat.get("_id")
         name = cat.get("profile", {}).get("name", "Unknown")
         if not cat_uid:
             continue
-        for key, *path in BINARY_SENSORS:
+        for key, (icon, device_class) in BINARY_SENSOR_DEFINITIONS.items():
             entities.append(
-                FeellooBinarySensor(coordinator, cat_uid, name, key, path)
+                FeellooBinarySensor(main_coordinator, cat_uid, name, key, icon, device_class)
             )
     async_add_entities(entities)
 
@@ -50,30 +50,24 @@ class FeellooBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     def __init__(
         self,
-        coordinator: FeellooCoordinator,
+        coordinator: FeellooMainCoordinator,
         cat_uid: str,
         cat_name: str,
         key: str,
-        path: tuple,
+        icon: str | None,
+        device_class: BinarySensorDeviceClass | None,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._cat_uid = cat_uid
-        self._cat_name = cat_name
         self._key = key
-        self._path = path
         self._attr_unique_id = f"{cat_uid}_{key}"
         self._attr_translation_key = key
         self._attr_has_entity_name = True
-
-        device_class = path[-2] if len(path) >= 2 and isinstance(path[-2], BinarySensorDeviceClass) else None
-        icon = path[-1] if path and isinstance(path[-1], str) else None
-
         if device_class:
             self._attr_device_class = device_class
         if icon:
             self._attr_icon = icon
-
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},
             "name": cat_name,
@@ -88,30 +82,12 @@ class FeellooBinarySensor(CoordinatorEntity, BinarySensorEntity):
                 return cat
         return None
 
-    def _get_value(self, data: dict, path: tuple) -> bool:
-        """Navigate nested dict and return boolean value."""
-        try:
-            for key in path:
-                if key is None:
-                    continue
-                if isinstance(key, str):
-                    data = data[key]
-                else:
-                    data = key  # Should not happen
-            return bool(data)
-        except (KeyError, TypeError):
-            return False
-
     @property
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
         cat = self._get_cat()
         if not cat:
             return None
-        # Build the actual path, filtering out None and device_class/icon
-        actual_path = tuple(p for p in self._path if p is not None and not isinstance(p, (BinarySensorDeviceClass, str)))
-        # For paths with nested access like ("gateway", "tag", "status", "charging")
-        # We need to handle the structure correctly
         if self._key == "home":
             return cat.get("presence", {}).get("status", {}).get("home", False)
         if self._key == "in_range":

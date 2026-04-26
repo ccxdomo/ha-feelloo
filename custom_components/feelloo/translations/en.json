@@ -78,8 +78,26 @@
       "activity": {
         "name": "{name} Activity"
       },
+      "activity_rest": {
+        "name": "{name} Activity Rest"
+      },
+      "activity_calm": {
+        "name": "{name} Activity Calm"
+      },
+      "activity_action": {
+        "name": "{name} Activity Action"
+      },
       "extended_search_expiration": {
         "name": "{name} Extended Search Expiration"
+      },
+      "last_outing_start": {
+        "name": "{name} Last Outing Start"
+      },
+      "last_outing_end": {
+        "name": "{name} Last Outing End"
+      },
+      "outing_count": {
+        "name": "{name} Outing Count"
       }
     },
     "button": {

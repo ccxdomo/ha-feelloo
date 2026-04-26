@@ -19,11 +19,13 @@ CONF_PASSWORD = "password"
 # Polling intervals
 CATS_UPDATE_INTERVAL = timedelta(minutes=5)
 ACTIVITY_UPDATE_INTERVAL = timedelta(minutes=15)
+TERRITORY_UPDATE_INTERVAL = timedelta(minutes=15)
 TOKEN_REFRESH_INTERVAL = timedelta(minutes=50)
 
 # API endpoints
 ENDPOINT_CATS = "/users/cats"
 ENDPOINT_ACTIVITY = "/users/cats/{cat_id}/activity"
-ENDPOINT_TERRITORY = "/users/cats/{cat_id}/territory"
+ENDPOINT_TERRITORY_PATHS = "/users/cats/{cat_id}/territory/paths"
 ENDPOINT_TERRITORY_PATH = "/users/cats/{cat_id}/territory/paths/{session_id}"
+ENDPOINT_TERRITORY = "/users/cats/{cat_id}/territory"
 ENDPOINT_RING = "/users/cats/{cat_id}/ring/bell-button"

@@ -6,12 +6,13 @@ Custom integration for [Feelloo](https://feelloo.com) cat trackers in Home Assis
 
 ## Features
 
-- Track your cats' location in real-time
-- Monitor battery level and charging status
-- View activity status (sleep, calm, active)
-- Ring your cat's tag to locate them
-- Presence detection (home / away)
-- Extended search mode status
+- **Real-time GPS tracking** — live location on the Home Assistant map
+- **Activity monitoring** — rest, calm, and action percentages with hourly history
+- **Territory sessions** — track outings with start/end timestamps and session count
+- **Battery & charging status** — never miss a low battery
+- **Presence detection** — home / away / in-range status
+- **Ring button** — locate your cat by triggering the tag ringtone
+- **Extended search mode** — monitor search activation and expiration
 
 ## Installation
 
@@ -37,6 +38,18 @@ Custom integration for [Feelloo](https://feelloo.com) cat trackers in Home Assis
 
 Your cats and their data will be automatically discovered.
 
+## Architecture
+
+The integration uses **three separate DataUpdateCoordinators** for optimal polling:
+
+| Coordinator | Endpoint | Interval |
+|------------|----------|----------|
+| Main | `/users/cats` | 5 minutes |
+| Activity | `/users/cats/{cat_id}/activity?period_type=day` | 15 minutes |
+| Territory | `/users/cats/{cat_id}/territory/paths` | 15 minutes |
+
+All coordinators share a single Firebase auth manager with automatic token refresh every 50 minutes.
+
 ## Entities
 
 For each detected cat, the following entities are created:
@@ -56,8 +69,16 @@ For each detected cat, the following entities are created:
 - **GPS Precision** — accuracy in meters
 - **Last Seen** — timestamp of last location update
 - **Presence Time** — timestamp of last presence detection
-- **Activity** — current activity (sleep / calm / active)
+- **Activity** — current dominant activity (sleep / calm / active)
+  - Attribute: `history` — full 24-hour hourly breakdown
+- **Activity Rest** — rest percentage (%)
+- **Activity Calm** — calm percentage (%)
+- **Activity Action** — action percentage (%)
+  - Attribute: `history` — full 24-hour hourly breakdown
 - **Extended Search Expiration** — when extended search expires
+- **Last Outing Start** — timestamp of last territory session start
+- **Last Outing End** — timestamp of last territory session end
+- **Outing Count** — total number of territory sessions
 
 ### Device Tracker
 - **Tracker** — GPS location on the map

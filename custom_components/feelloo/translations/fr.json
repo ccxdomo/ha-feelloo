@@ -78,8 +78,26 @@
       "activity": {
         "name": "{name} Activité"
       },
+      "activity_rest": {
+        "name": "{name} Repos"
+      },
+      "activity_calm": {
+        "name": "{name} Calme"
+      },
+      "activity_action": {
+        "name": "{name} Actif"
+      },
       "extended_search_expiration": {
         "name": "{name} Expiration recherche étendue"
+      },
+      "last_outing_start": {
+        "name": "{name} Début dernière sortie"
+      },
+      "last_outing_end": {
+        "name": "{name} Fin dernière sortie"
+      },
+      "outing_count": {
+        "name": "{name} Nombre de sorties"
       }
     },
     "button": {

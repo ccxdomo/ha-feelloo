@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FeellooCoordinator
+from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator
 
 
 async def async_setup_entry(
@@ -20,32 +20,41 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Feelloo sensors."""
-    coordinator: FeellooCoordinator = hass.data[DOMAIN][entry.entry_id]
+    main: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
+    activity: FeellooActivityCoordinator = hass.data[DOMAIN][entry.entry_id]["activity"]
+    territory: FeellooTerritoryCoordinator = hass.data[DOMAIN][entry.entry_id]["territory"]
+
     entities = []
-    for cat in coordinator.cats:
+    for cat in main.cats:
         cat_uid = cat.get("_id")
         name = cat.get("profile", {}).get("name", "Unknown")
         if not cat_uid:
             continue
         entities.extend([
-            FeellooBatterySensor(coordinator, cat_uid, name),
-            FeellooLatitudeSensor(coordinator, cat_uid, name),
-            FeellooLongitudeSensor(coordinator, cat_uid, name),
-            FeellooGpsPrecisionSensor(coordinator, cat_uid, name),
-            FeellooLastSeenSensor(coordinator, cat_uid, name),
-            FeellooPresenceTimeSensor(coordinator, cat_uid, name),
-            FeellooActivitySensor(coordinator, cat_uid, name),
-            FeellooExtendedSearchExpirationSensor(coordinator, cat_uid, name),
+            FeellooBatterySensor(main, cat_uid, name),
+            FeellooLatitudeSensor(main, cat_uid, name),
+            FeellooLongitudeSensor(main, cat_uid, name),
+            FeellooGpsPrecisionSensor(main, cat_uid, name),
+            FeellooLastSeenSensor(main, cat_uid, name),
+            FeellooPresenceTimeSensor(main, cat_uid, name),
+            FeellooActivitySensor(main, activity, cat_uid, name),
+            FeellooActivityRestSensor(activity, cat_uid, name),
+            FeellooActivityCalmSensor(activity, cat_uid, name),
+            FeellooActivityActionSensor(activity, cat_uid, name),
+            FeellooExtendedSearchExpirationSensor(main, cat_uid, name),
+            FeellooLastOutingStartSensor(territory, cat_uid, name),
+            FeellooLastOutingEndSensor(territory, cat_uid, name),
+            FeellooOutingCountSensor(territory, cat_uid, name),
         ])
     async_add_entities(entities)
 
 
 class FeellooSensorBase(CoordinatorEntity, SensorEntity):
-    """Base class for Feelloo sensors."""
+    """Base class for Feelloo sensors tied to main coordinator."""
 
     def __init__(
         self,
-        coordinator: FeellooCoordinator,
+        coordinator: FeellooMainCoordinator,
         cat_uid: str,
         cat_name: str,
         key: str,
@@ -53,7 +62,6 @@ class FeellooSensorBase(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._cat_uid = cat_uid
-        self._cat_name = cat_name
         self._key = key
         self._attr_unique_id = f"{cat_uid}_{key}"
         self._attr_translation_key = key
@@ -190,22 +198,133 @@ class FeellooPresenceTimeSensor(FeellooSensorBase):
 
 
 class FeellooActivitySensor(FeellooSensorBase):
-    """Activity sensor."""
+    """Activity sensor — legacy combined activity."""
 
     _attr_icon = "mdi:run"
 
-    def __init__(self, coordinator, cat_uid, cat_name):
-        super().__init__(coordinator, cat_uid, cat_name, "activity")
+    def __init__(self, main_coordinator, activity_coordinator, cat_uid, cat_name):
+        super().__init__(main_coordinator, cat_uid, cat_name, "activity")
+        self._activity_coordinator = activity_coordinator
 
     @property
     def native_value(self):
         cat = self._get_cat()
         if not cat:
             return None
-        activity = cat.get("_activity", {})
-        if activity is None:
+        activity = self._activity_coordinator.get_activity(self._cat_uid)
+        if not activity:
             return None
-        return activity.get("activity", activity.get("status"))
+        # Return most dominant activity from average
+        avg = activity.get("average", {})
+        rest = avg.get("rest_percentage", 0)
+        calm = avg.get("calm_percentage", 0)
+        action = avg.get("action_percentage", 0)
+        if action >= calm and action >= rest:
+            return "active"
+        if calm >= rest:
+            return "calm"
+        return "sleep"
+
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes with full history."""
+        activity = self._activity_coordinator.get_activity(self._cat_uid)
+        if not activity:
+            return {}
+        return {
+            "history": activity.get("history", []),
+        }
+
+
+class FeellooActivityBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base for activity percentage sensors."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: FeellooActivityCoordinator,
+        cat_uid: str,
+        cat_name: str,
+        key: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._cat_uid = cat_uid
+        self._key = key
+        self._attr_unique_id = f"{cat_uid}_{key}"
+        self._attr_translation_key = key
+        self._attr_icon = icon
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, cat_uid)},
+            "name": cat_name,
+            "manufacturer": "Feelloo",
+            "model": "Cat Tracker",
+        }
+
+    def _get_activity(self) -> dict | None:
+        """Get activity data for this cat."""
+        return self.coordinator.get_activity(self._cat_uid)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self._get_activity() is not None
+
+
+class FeellooActivityRestSensor(FeellooActivityBaseSensor):
+    """Activity rest percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_rest", "mdi:sleep")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("rest_percentage")
+
+    @property
+    def extra_state_attributes(self):
+        """Return full history as attribute."""
+        activity = self._get_activity()
+        if not activity:
+            return {}
+        return {
+            "history": activity.get("history", []),
+        }
+
+
+class FeellooActivityCalmSensor(FeellooActivityBaseSensor):
+    """Activity calm percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_calm", "mdi:cat")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("calm_percentage")
+
+
+class FeellooActivityActionSensor(FeellooActivityBaseSensor):
+    """Activity action percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_action", "mdi:run")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("action_percentage")
 
 
 class FeellooExtendedSearchExpirationSensor(FeellooSensorBase):
@@ -228,3 +347,103 @@ class FeellooExtendedSearchExpirationSensor(FeellooSensorBase):
             except ValueError:
                 return None
         return None
+
+
+class FeellooTerritoryBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base for territory sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: FeellooTerritoryCoordinator,
+        cat_uid: str,
+        cat_name: str,
+        key: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._cat_uid = cat_uid
+        self._key = key
+        self._attr_unique_id = f"{cat_uid}_{key}"
+        self._attr_translation_key = key
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, cat_uid)},
+            "name": cat_name,
+            "manufacturer": "Feelloo",
+            "model": "Cat Tracker",
+        }
+
+    def _get_last_session(self) -> dict | None:
+        """Get the most recent territory session."""
+        return self.coordinator.get_last_session(self._cat_uid)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self._get_last_session() is not None
+
+
+class FeellooLastOutingStartSensor(FeellooTerritoryBaseSensor):
+    """Timestamp of last outing start."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_outing_start")
+
+    @property
+    def native_value(self):
+        session = self._get_last_session()
+        if not session:
+            return None
+        ts = session.get("start_date")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
+
+class FeellooLastOutingEndSensor(FeellooTerritoryBaseSensor):
+    """Timestamp of last outing end."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "last_outing_end")
+
+    @property
+    def native_value(self):
+        session = self._get_last_session()
+        if not session:
+            return None
+        ts = session.get("end_date")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
+
+class FeellooOutingCountSensor(FeellooTerritoryBaseSensor):
+    """Total number of territory sessions."""
+
+    _attr_icon = "mdi:map-marker-path"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "outing_count")
+
+    @property
+    def native_value(self):
+        paths = self.coordinator.get_paths(self._cat_uid)
+        return len(paths) if paths else 0
+
+    @property
+    def available(self) -> bool:
+        """Available if we have paths data."""
+        paths = self.coordinator.get_paths(self._cat_uid)
+        return paths is not None
