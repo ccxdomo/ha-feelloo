@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator
+from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
 
 
 async def async_setup_entry(
@@ -22,6 +22,8 @@ async def async_setup_entry(
     """Set up Feelloo sensors."""
     main: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
     activity: FeellooActivityCoordinator = hass.data[DOMAIN][entry.entry_id]["activity"]
+    activity_week: FeellooActivityWeekCoordinator = hass.data[DOMAIN][entry.entry_id]["activity_week"]
+    activity_month: FeellooActivityMonthCoordinator = hass.data[DOMAIN][entry.entry_id]["activity_month"]
     territory: FeellooTerritoryCoordinator = hass.data[DOMAIN][entry.entry_id]["territory"]
     session: FeellooSessionCoordinator = hass.data[DOMAIN][entry.entry_id]["session"]
 
@@ -50,6 +52,12 @@ async def async_setup_entry(
             FeellooLastSessionPointsCountSensor(session, cat_uid, name),
             FeellooLastSessionStartSensor(session, cat_uid, name),
             FeellooLastSessionEndSensor(session, cat_uid, name),
+            FeellooActivityRestWeekSensor(activity_week, cat_uid, name),
+            FeellooActivityCalmWeekSensor(activity_week, cat_uid, name),
+            FeellooActivityActionWeekSensor(activity_week, cat_uid, name),
+            FeellooActivityRestMonthSensor(activity_month, cat_uid, name),
+            FeellooActivityCalmMonthSensor(activity_month, cat_uid, name),
+            FeellooActivityActionMonthSensor(activity_month, cat_uid, name),
         ])
     async_add_entities(entities)
 
@@ -597,3 +605,185 @@ class FeellooLastSessionEndSensor(FeellooSessionBaseSensor):
             except ValueError:
                 return None
         return None
+
+
+class FeellooActivityWeekBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base for weekly activity percentage sensors."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: FeellooActivityWeekCoordinator,
+        cat_uid: str,
+        cat_name: str,
+        key: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._cat_uid = cat_uid
+        self._key = key
+        self._attr_unique_id = f"{cat_uid}_{key}"
+        self._attr_translation_key = key
+        self._attr_icon = icon
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, cat_uid)},
+            "name": cat_name,
+            "manufacturer": "Feelloo",
+            "model": "Cat Tracker",
+        }
+
+    def _get_activity(self) -> dict | None:
+        """Get weekly activity data for this cat."""
+        return self.coordinator.get_activity(self._cat_uid)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self._get_activity() is not None
+
+
+class FeellooActivityRestWeekSensor(FeellooActivityWeekBaseSensor):
+    """Weekly activity rest percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_rest_week", "mdi:sleep")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("rest_percentage")
+
+    @property
+    def extra_state_attributes(self):
+        """Return full history as attribute."""
+        activity = self._get_activity()
+        if not activity:
+            return {}
+        return {
+            "history": activity.get("history", []),
+        }
+
+
+class FeellooActivityCalmWeekSensor(FeellooActivityWeekBaseSensor):
+    """Weekly activity calm percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_calm_week", "mdi:cat")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("calm_percentage")
+
+
+class FeellooActivityActionWeekSensor(FeellooActivityWeekBaseSensor):
+    """Weekly activity action percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_action_week", "mdi:run")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("action_percentage")
+
+
+class FeellooActivityMonthBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base for monthly activity percentage sensors."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: FeellooActivityMonthCoordinator,
+        cat_uid: str,
+        cat_name: str,
+        key: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._cat_uid = cat_uid
+        self._key = key
+        self._attr_unique_id = f"{cat_uid}_{key}"
+        self._attr_translation_key = key
+        self._attr_icon = icon
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, cat_uid)},
+            "name": cat_name,
+            "manufacturer": "Feelloo",
+            "model": "Cat Tracker",
+        }
+
+    def _get_activity(self) -> dict | None:
+        """Get monthly activity data for this cat."""
+        return self.coordinator.get_activity(self._cat_uid)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self._get_activity() is not None
+
+
+class FeellooActivityRestMonthSensor(FeellooActivityMonthBaseSensor):
+    """Monthly activity rest percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_rest_month", "mdi:sleep")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("rest_percentage")
+
+    @property
+    def extra_state_attributes(self):
+        """Return full history as attribute."""
+        activity = self._get_activity()
+        if not activity:
+            return {}
+        return {
+            "history": activity.get("history", []),
+        }
+
+
+class FeellooActivityCalmMonthSensor(FeellooActivityMonthBaseSensor):
+    """Monthly activity calm percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_calm_month", "mdi:cat")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("calm_percentage")
+
+
+class FeellooActivityActionMonthSensor(FeellooActivityMonthBaseSensor):
+    """Monthly activity action percentage sensor."""
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "activity_action_month", "mdi:run")
+
+    @property
+    def native_value(self):
+        activity = self._get_activity()
+        if not activity:
+            return None
+        return activity.get("average", {}).get("action_percentage")

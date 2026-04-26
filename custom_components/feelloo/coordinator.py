@@ -21,6 +21,8 @@ from .const import (
     BASE_URL,
     CATS_UPDATE_INTERVAL,
     ACTIVITY_UPDATE_INTERVAL,
+    ACTIVITY_WEEK_UPDATE_INTERVAL,
+    ACTIVITY_MONTH_UPDATE_INTERVAL,
     TERRITORY_UPDATE_INTERVAL,
     SESSION_UPDATE_INTERVAL,
     TOKEN_REFRESH_INTERVAL,
@@ -262,6 +264,104 @@ class FeellooActivityCoordinator(DataUpdateCoordinator):
 
     def get_activity(self, cat_uid: str) -> dict | None:
         """Get activity data for a specific cat."""
+        if not self.data:
+            return None
+        return self.data.get("activities", {}).get(cat_uid)
+
+
+class FeellooActivityWeekCoordinator(DataUpdateCoordinator):
+    """Coordinator for weekly activity data — polls every hour."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
+        """Initialize the coordinator."""
+        self.entry = entry
+        self.auth = auth
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_activity_week",
+            update_interval=ACTIVITY_WEEK_UPDATE_INTERVAL,
+        )
+
+    async def _async_update_data(self) -> dict:
+        """Fetch weekly activity data for all cats."""
+        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        cats = main_coordinator.cats
+        now = dt_util.now()
+        # Get Monday of current week
+        monday = now - timedelta(days=now.weekday())
+        start_date = monday.strftime("%Y-%m-%d")
+        activities = {}
+
+        for cat in cats:
+            cat_id = cat.get("cat_id")
+            cat_uid = cat.get("_id")
+            if cat_id is None or cat_uid is None:
+                continue
+            try:
+                activity = await self.auth.async_api_request(
+                    "GET",
+                    ENDPOINT_ACTIVITY.format(cat_id=cat_id),
+                    params={"period_type": "week", "start_date": start_date},
+                )
+                activities[cat_uid] = activity
+            except UpdateFailed:
+                activities[cat_uid] = None
+
+        return {"activities": activities}
+
+    def get_activity(self, cat_uid: str) -> dict | None:
+        """Get weekly activity data for a specific cat."""
+        if not self.data:
+            return None
+        return self.data.get("activities", {}).get(cat_uid)
+
+
+class FeellooActivityMonthCoordinator(DataUpdateCoordinator):
+    """Coordinator for monthly activity data — polls every 6 hours."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
+        """Initialize the coordinator."""
+        self.entry = entry
+        self.auth = auth
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_activity_month",
+            update_interval=ACTIVITY_MONTH_UPDATE_INTERVAL,
+        )
+
+    async def _async_update_data(self) -> dict:
+        """Fetch monthly activity data for all cats."""
+        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        cats = main_coordinator.cats
+        now = dt_util.now()
+        # First day of current month
+        first_day = now.replace(day=1)
+        start_date = first_day.strftime("%Y-%m-%d")
+        activities = {}
+
+        for cat in cats:
+            cat_id = cat.get("cat_id")
+            cat_uid = cat.get("_id")
+            if cat_id is None or cat_uid is None:
+                continue
+            try:
+                activity = await self.auth.async_api_request(
+                    "GET",
+                    ENDPOINT_ACTIVITY.format(cat_id=cat_id),
+                    params={"period_type": "month", "start_date": start_date},
+                )
+                activities[cat_uid] = activity
+            except UpdateFailed:
+                activities[cat_uid] = None
+
+        return {"activities": activities}
+
+    def get_activity(self, cat_uid: str) -> dict | None:
+        """Get monthly activity data for a specific cat."""
         if not self.data:
             return None
         return self.data.get("activities", {}).get(cat_uid)

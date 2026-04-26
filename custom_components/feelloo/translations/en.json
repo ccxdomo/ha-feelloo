@@ -110,6 +110,24 @@
       },
       "last_session_end": {
         "name": "Last Session End"
+      },
+      "activity_rest_week": {
+        "name": "Activity Rest Week"
+      },
+      "activity_calm_week": {
+        "name": "Activity Calm Week"
+      },
+      "activity_action_week": {
+        "name": "Activity Action Week"
+      },
+      "activity_rest_month": {
+        "name": "Activity Rest Month"
+      },
+      "activity_calm_month": {
+        "name": "Activity Calm Month"
+      },
+      "activity_action_month": {
+        "name": "Activity Action Month"
       }
     },
     "switch": {

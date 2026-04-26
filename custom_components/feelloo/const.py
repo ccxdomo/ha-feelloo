@@ -19,6 +19,8 @@ CONF_PASSWORD = "password"
 # Polling intervals
 CATS_UPDATE_INTERVAL = timedelta(minutes=5)
 ACTIVITY_UPDATE_INTERVAL = timedelta(minutes=15)
+ACTIVITY_WEEK_UPDATE_INTERVAL = timedelta(hours=1)
+ACTIVITY_MONTH_UPDATE_INTERVAL = timedelta(hours=6)
 TERRITORY_UPDATE_INTERVAL = timedelta(minutes=15)
 SESSION_UPDATE_INTERVAL = timedelta(minutes=30)
 TOKEN_REFRESH_INTERVAL = timedelta(minutes=50)

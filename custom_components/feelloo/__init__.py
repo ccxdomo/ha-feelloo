@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
-from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator
+from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +51,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:
         _LOGGER.warning("Territory coordinator failed first refresh, will retry on next interval")
 
+    # Activity week coordinator — polls every hour
+    activity_week_coordinator = FeellooActivityWeekCoordinator(hass, entry, auth)
+    try:
+        await activity_week_coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _LOGGER.warning("Activity week coordinator failed first refresh, will retry on next interval")
+
+    # Activity month coordinator — polls every 6 hours
+    activity_month_coordinator = FeellooActivityMonthCoordinator(hass, entry, auth)
+    try:
+        await activity_month_coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _LOGGER.warning("Activity month coordinator failed first refresh, will retry on next interval")
+
     # Session coordinator — polls territory session details every 30 min
     session_coordinator = FeellooSessionCoordinator(hass, entry, auth)
     try:
@@ -62,6 +76,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "auth": auth,
         "main": main_coordinator,
         "activity": activity_coordinator,
+        "activity_week": activity_week_coordinator,
+        "activity_month": activity_month_coordinator,
         "territory": territory_coordinator,
         "session": session_coordinator,
     }
@@ -95,6 +111,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await data["auth"].async_shutdown()
             await data["main"].async_shutdown()
             await data["activity"].async_shutdown()
+            await data["activity_week"].async_shutdown()
+            await data["activity_month"].async_shutdown()
             await data["territory"].async_shutdown()
             await data["session"].async_shutdown()
         hass.services.async_remove(DOMAIN, SERVICE_SET_PETITE_SOURIS)

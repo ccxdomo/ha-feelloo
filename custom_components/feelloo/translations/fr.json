@@ -98,6 +98,36 @@
       },
       "outing_count": {
         "name": "Nombre de sorties"
+      },
+      "last_session_duration": {
+        "name": "Durée dernière session"
+      },
+      "last_session_points_count": {
+        "name": "Nombre points session"
+      },
+      "last_session_start": {
+        "name": "Début dernière session"
+      },
+      "last_session_end": {
+        "name": "Fin dernière session"
+      },
+      "activity_rest_week": {
+        "name": "Repos hebdo"
+      },
+      "activity_calm_week": {
+        "name": "Calme hebdo"
+      },
+      "activity_action_week": {
+        "name": "Actif hebdo"
+      },
+      "activity_rest_month": {
+        "name": "Repos mensuel"
+      },
+      "activity_calm_month": {
+        "name": "Calme mensuel"
+      },
+      "activity_action_month": {
+        "name": "Actif mensuel"
       }
     },
     "switch": {
