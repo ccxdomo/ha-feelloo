@@ -6,6 +6,7 @@ from datetime import datetime
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -52,6 +53,7 @@ async def async_setup_entry(
             FeellooLastSessionPointsCountSensor(session, cat_uid, name),
             FeellooLastSessionStartSensor(session, cat_uid, name),
             FeellooLastSessionEndSensor(session, cat_uid, name),
+            FeellooSignalStrengthSensor(main, cat_uid, name),
             FeellooActivityRestWeekSensor(activity_week, cat_uid, name),
             FeellooActivityCalmWeekSensor(activity_week, cat_uid, name),
             FeellooActivityActionWeekSensor(activity_week, cat_uid, name),
@@ -787,3 +789,49 @@ class FeellooActivityActionMonthSensor(FeellooActivityMonthBaseSensor):
         if not activity:
             return None
         return activity.get("average", {}).get("action_percentage")
+
+
+class FeellooSignalStrengthSensor(FeellooSensorBase):
+    """BLE signal strength sensor."""
+
+    _attr_icon = "mdi:signal"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, cat_uid, cat_name):
+        super().__init__(coordinator, cat_uid, cat_name, "signal_strength")
+
+    @property
+    def native_value(self):
+        cat = self._get_cat()
+        if not cat:
+            return None
+        presence = cat.get("presence", {})
+        status = presence.get("status", {})
+        in_range = status.get("in_range")
+        rssi = status.get("f32_rssi_dbm")
+        if in_range is False:
+            return 0
+        if rssi is None:
+            return None
+        # Handle string values from API
+        if isinstance(rssi, str):
+            try:
+                rssi = float(rssi)
+            except (ValueError, TypeError):
+                return None
+        if not isinstance(rssi, (int, float)):
+            return None
+        return max(0, min(100, round(rssi + 154)))
+
+    @property
+    def extra_state_attributes(self):
+        """Return raw RSSI dBm as attribute."""
+        cat = self._get_cat()
+        if not cat:
+            return {}
+        rssi = cat.get("presence", {}).get("status", {}).get("f32_rssi_dbm")
+        return {
+            "rssi_dbm": rssi,
+        }
