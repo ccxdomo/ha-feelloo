@@ -48,7 +48,7 @@ The integration uses **three separate DataUpdateCoordinators** for optimal polli
 
 | Coordinator | Endpoint | Interval |
 |------------|----------|----------|
-| Main | `/users/cats` | 5 minutes |
+| Main | `/users/cats` + `/users/cats/{cat_id}` | 5 minutes |
 | Activity | `/users/cats/{cat_id}/activity?period_type=day` | 15 minutes |
 | Territory | `/users/cats/{cat_id}/territory/paths` | 15 minutes |
 
@@ -68,6 +68,8 @@ For each detected cat, the following entities are created:
 - **Extended Search** — whether extended search mode is enabled
 
 ### Sensors
+- **Signal Strength** — BLE signal strength (%) from tag to gateway
+  - Attribute: `rssi_dbm` — raw RSSI value
 - **Battery** — battery level (%)
 - **Latitude** / **Longitude** — last known GPS coordinates
 - **GPS Precision** — accuracy in meters
