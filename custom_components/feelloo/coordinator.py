@@ -29,6 +29,7 @@ from .const import (
     CONF_EMAIL,
     CONF_PASSWORD,
     ENDPOINT_CATS,
+    ENDPOINT_CAT_DETAIL,
     ENDPOINT_ACTIVITY,
     ENDPOINT_TERRITORY_PATHS,
     ENDPOINT_TERRITORY,
@@ -192,10 +193,27 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Token refresh failed: %s", err)
 
     async def _async_update_data(self) -> dict:
-        """Fetch cats data from /users/cats."""
+        """Fetch cats data from /users/cats, then enrich each with /users/cats/{cat_id}."""
         data = await self.auth.async_api_request("GET", ENDPOINT_CATS)
         cats = data if isinstance(data, list) else data.get("cats", [])
-        return {"cats": cats}
+        
+        # Enrich each cat with detailed data from /users/cats/{cat_id}
+        enriched_cats = []
+        for cat in cats:
+            cat_id = cat.get("cat_id")
+            if cat_id is not None:
+                try:
+                    detail = await self.auth.async_api_request(
+                        "GET", ENDPOINT_CAT_DETAIL.format(cat_id=cat_id)
+                    )
+                    if detail and isinstance(detail, dict):
+                        # Merge detail data into the cat dict
+                        cat.update(detail)
+                except UpdateFailed as err:
+                    _LOGGER.warning("Failed to fetch cat detail for %s: %s", cat_id, err)
+            enriched_cats.append(cat)
+        
+        return {"cats": enriched_cats}
 
     async def _async_setup_devices(self) -> None:
         """Register devices in the device registry."""

@@ -27,6 +27,7 @@ TOKEN_REFRESH_INTERVAL = timedelta(minutes=50)
 
 # API endpoints
 ENDPOINT_CATS = "/users/cats"
+ENDPOINT_CAT_DETAIL = "/users/cats/{cat_id}"
 ENDPOINT_ACTIVITY = "/users/cats/{cat_id}/activity"
 ENDPOINT_TERRITORY_PATHS = "/users/cats/{cat_id}/territory/paths"
 ENDPOINT_TERRITORY_PATH = "/users/cats/{cat_id}/territory/paths/{session_id}"
