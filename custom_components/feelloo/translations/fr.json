@@ -148,10 +148,6 @@
         "name": "Sonnette"
       }
     },
-    "device_tracker": {
-      "tracker": {
-        "name": ""
-      }
-    }
+
   }
 }

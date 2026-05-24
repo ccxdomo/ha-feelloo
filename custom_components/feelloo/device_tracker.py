@@ -52,13 +52,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         }
 
     @property
-    def name(self) -> str | None:
+    def name(self) -> str:
         """Return the name of the tracker.
 
         Home Assistant generates the entity_id by slugifying this name,
         e.g. device_tracker.{cat_name_slug}.
         """
-        return None
+        return self._cat_name
 
     def _get_cat(self) -> dict | None:
         """Get the cat data from coordinator."""

@@ -148,10 +148,6 @@
         "name": "Bell"
       }
     },
-    "device_tracker": {
-      "tracker": {
-        "name": ""
-      }
-    }
+
   }
 }
