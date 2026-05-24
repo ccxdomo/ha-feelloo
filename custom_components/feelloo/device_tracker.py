@@ -45,6 +45,7 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         """Initialize the tracker."""
         super().__init__(coordinator)
         self._cat_uid = cat_uid
+        self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_tracker"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},
@@ -52,6 +53,15 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
             "manufacturer": "Feelloo",
             "model": "Cat Tracker",
         }
+
+    @property
+    def name(self) -> str:
+        """Return the name of the tracker.
+
+        Home Assistant generates the entity_id by slugifying this name,
+        e.g. device_tracker.{cat_name_slug}.
+        """
+        return self._cat_name
 
     def _get_cat(self) -> dict | None:
         """Get the cat data from coordinator."""
@@ -88,6 +98,36 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         if not cat:
             return 0
         return cat.get("geolocation", {}).get("last_geolocation", {}).get("precision_meter", 0)
+
+    @property
+    def state(self) -> str:
+        """Return the state of the device tracker.
+
+        home if presence.status.in_range is True, otherwise not_home.
+        """
+        cat = self._get_cat()
+        if not cat:
+            return "not_home"
+        in_range = cat.get("presence", {}).get("status", {}).get("in_range")
+        return "home" if in_range is True else "not_home"
+
+    @property
+    def icon(self) -> str:
+        """Return the icon."""
+        return "mdi:cat"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return extra state attributes."""
+        cat = self._get_cat()
+        if not cat:
+            return {}
+
+        geo = cat.get("geolocation", {}).get("last_geolocation", {})
+        return {
+            "last_seen": geo.get("date_time"),
+            "precision_meter": geo.get("precision_meter"),
+        }
 
     @property
     def available(self) -> bool:
