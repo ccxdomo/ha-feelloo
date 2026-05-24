@@ -17,6 +17,7 @@ Custom integration for [Feelloo](https://feelloo.com) cat trackers in Home Assis
 - **Presence detection** — home / away / in-range status
 - **Ring button** — locate your cat by triggering the tag ringtone
 - **Extended search mode** — monitor search activation and expiration
+- **Dynamic fast polling** — when Petite Souris mode is enabled, polling increases to 1 minute for real-time GPS and signal strength updates
 
 ## Installation
 
@@ -48,11 +49,19 @@ The integration uses **three separate DataUpdateCoordinators** for optimal polli
 
 | Coordinator | Endpoint | Interval |
 |------------|----------|----------|
-| Main | `/users/cats` + `/users/cats/{cat_id}` | 5 minutes |
+| Main | `/users/cats` + `/users/cats/{cat_id}` | 5 minutes (1 min with Petite Souris) |
 | Activity | `/users/cats/{cat_id}/activity?period_type=day` | 15 minutes |
 | Territory | `/users/cats/{cat_id}/territory/paths` | 15 minutes |
 
 All coordinators share a single Firebase auth manager with automatic token refresh every 50 minutes.
+
+### Dynamic Fast Polling
+
+When the **Petite Souris** switch is turned ON for a cat:
+- A dedicated timer triggers the Main coordinator refresh every **1 minute**
+- This affects GPS location, signal strength, battery, and all main coordinator entities
+- When the switch is turned OFF, the timer stops and normal 5-minute polling resumes
+- Multiple cats can have independent fast polling timers
 
 ## Entities
 
@@ -96,7 +105,12 @@ For each detected cat, the following entities are created:
     - `last_seen`: ISO timestamp of last location update
     - `precision_meter`: GPS accuracy in meters
   - Icon: `mdi:cat`
-  - Entity ID: `device_tracker.{cat_name_slug}_name`
+
+### Switches
+- **Petite Souris** — enables/disables extended search mode with fast polling
+  - When ON: polling interval drops to **1 minute** for real-time GPS and signal strength
+  - When OFF: returns to normal **5 minute** polling
+  - Each cat has its own independent timer
 
 ### Button
 - **Ring** — trigger the tag ringtone (only if `can_ring` is true)
