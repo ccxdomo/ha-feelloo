@@ -134,6 +134,8 @@ Replace `{cat_name}` with your cat's name slug (lowercase, spaces as underscores
 
 **Supported formats:** `.jpg` and `.png`
 
+**Recommended resolution:** 400×400 pixels (1:1 ratio) for optimal display on the map and entity cards
+
 **Restart required:** Home Assistant must be restarted after adding or changing images
 
 **Result:** the device tracker will show your cat's photo instead of the default `mdi:cat` icon on the map and in entity cards.
