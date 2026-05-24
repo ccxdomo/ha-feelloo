@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from homeassistant.components.device_tracker import SourceType
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
@@ -11,6 +13,20 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import FeellooMainCoordinator
+
+
+# Base path for user-provided cat images
+_LOCAL_IMAGE_DIR = "/config/www/feelloo"
+
+
+def _resolve_entity_picture(cat_name: str) -> str | None:
+    """Return the entity_picture path if a local image exists for this cat."""
+    slug = cat_name.lower().replace(" ", "_")
+    for ext in ("jpg", "png"):
+        path = os.path.join(_LOCAL_IMAGE_DIR, f"{slug}.{ext}")
+        if os.path.isfile(path):
+            return f"/local/feelloo/{slug}.{ext}"
+    return None
 
 
 async def async_setup_entry(
@@ -46,6 +62,7 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         self._cat_uid = cat_uid
         self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_tracker"
+        self._attr_entity_picture = _resolve_entity_picture(cat_name)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},
             "name": cat_name,
