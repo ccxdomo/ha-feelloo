@@ -87,7 +87,16 @@ For each detected cat, the following entities are created:
 - **Outing Count** — total number of territory sessions
 
 ### Device Tracker
-- **Tracker** — GPS location on the map
+- **Tracker** — GPS location on the Home Assistant map
+  - `source_type`: GPS
+  - `latitude` / `longitude`: last known coordinates
+  - `location_accuracy`: precision radius in meters (circle on the map)
+  - State: `home` if `presence.status.in_range` is true, otherwise `not_home`
+  - Attributes:
+    - `last_seen`: ISO timestamp of last location update
+    - `precision_meter`: GPS accuracy in meters
+  - Icon: `mdi:cat`
+  - Entity ID: `device_tracker.{cat_name_slug}_name`
 
 ### Button
 - **Ring** — trigger the tag ringtone (only if `can_ring` is true)
