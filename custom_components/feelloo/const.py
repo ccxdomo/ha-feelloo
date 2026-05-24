@@ -24,6 +24,7 @@ ACTIVITY_MONTH_UPDATE_INTERVAL = timedelta(hours=6)
 TERRITORY_UPDATE_INTERVAL = timedelta(minutes=15)
 SESSION_UPDATE_INTERVAL = timedelta(minutes=30)
 TOKEN_REFRESH_INTERVAL = timedelta(minutes=50)
+FAST_POLLING_INTERVAL = timedelta(minutes=1)
 
 # API endpoints
 ENDPOINT_CATS = "/users/cats"

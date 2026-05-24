@@ -117,7 +117,15 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
         """Turn the switch on."""
         duration = self._get_duration()
         await self._async_call_petite_souris(duration)
+        self.hass.bus.fire("feelloo_fast_polling", {
+            "cat_id": self._cat_id,
+            "enabled": True,
+        })
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the switch off."""
         await self._async_call_petite_souris(0)
+        self.hass.bus.fire("feelloo_fast_polling", {
+            "cat_id": self._cat_id,
+            "enabled": False,
+        })

@@ -6,7 +6,7 @@ import logging
 from datetime import timedelta
 
 import aiohttp
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.event import async_track_time_interval
@@ -26,6 +26,7 @@ from .const import (
     TERRITORY_UPDATE_INTERVAL,
     SESSION_UPDATE_INTERVAL,
     TOKEN_REFRESH_INTERVAL,
+    FAST_POLLING_INTERVAL,
     CONF_EMAIL,
     CONF_PASSWORD,
     ENDPOINT_CATS,
@@ -160,6 +161,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.auth = auth
         self._cancel_token_refresh = None
+        self._fast_polling_timers: dict[int, callable] = {}
 
         super().__init__(
             hass,
@@ -176,6 +178,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
             self._async_refresh_token_callback,
             TOKEN_REFRESH_INTERVAL,
         )
+        self.hass.bus.async_listen("feelloo_fast_polling", self._handle_fast_polling_event)
         await self.async_config_entry_first_refresh()
         await self._async_setup_devices()
 
@@ -183,7 +186,40 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         """Shutdown the coordinator."""
         if self._cancel_token_refresh:
             self._cancel_token_refresh()
+        for cat_id in list(self._fast_polling_timers.keys()):
+            self._stop_fast_polling_timer(cat_id)
         await super().async_shutdown()
+
+    @callback
+    def _handle_fast_polling_event(self, event) -> None:
+        """Handle fast polling enable/disable events from switch."""
+        data = event.data
+        cat_id = data.get("cat_id")
+        enabled = data.get("enabled")
+        if cat_id is None:
+            return
+        if enabled:
+            self._start_fast_polling_timer(cat_id)
+        else:
+            self._stop_fast_polling_timer(cat_id)
+
+    def _start_fast_polling_timer(self, cat_id: int) -> None:
+        """Start a fast polling timer for a specific cat."""
+        self._stop_fast_polling_timer(cat_id)
+        _LOGGER.debug("Starting fast polling for cat %s (1 min)", cat_id)
+        cancel_timer = async_track_time_interval(
+            self.hass,
+            lambda now: self.hass.async_create_task(self.async_request_refresh()),
+            FAST_POLLING_INTERVAL,
+        )
+        self._fast_polling_timers[cat_id] = cancel_timer
+
+    def _stop_fast_polling_timer(self, cat_id: int) -> None:
+        """Stop the fast polling timer for a specific cat."""
+        cancel_timer = self._fast_polling_timers.pop(cat_id, None)
+        if cancel_timer:
+            _LOGGER.debug("Stopping fast polling for cat %s", cat_id)
+            cancel_timer()
 
     async def _async_refresh_token_callback(self, now=None) -> None:
         """Callback to refresh the token periodically."""
