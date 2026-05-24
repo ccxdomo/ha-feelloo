@@ -37,41 +37,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     main_coordinator = FeellooMainCoordinator(hass, entry, auth)
     await main_coordinator.async_setup()
 
-    # Activity coordinator — polls /activity every 15 min
+    # Create all coordinators first
     activity_coordinator = FeellooActivityCoordinator(hass, entry, auth)
-    try:
-        await activity_coordinator.async_config_entry_first_refresh()
-    except Exception:
-        _LOGGER.warning("Activity coordinator failed first refresh, will retry on next interval")
-
-    # Territory coordinator — polls /territory/paths every 15 min
     territory_coordinator = FeellooTerritoryCoordinator(hass, entry, auth)
-    try:
-        await territory_coordinator.async_config_entry_first_refresh()
-    except Exception:
-        _LOGGER.warning("Territory coordinator failed first refresh, will retry on next interval")
-
-    # Activity week coordinator — polls every hour
     activity_week_coordinator = FeellooActivityWeekCoordinator(hass, entry, auth)
-    try:
-        await activity_week_coordinator.async_config_entry_first_refresh()
-    except Exception:
-        _LOGGER.warning("Activity week coordinator failed first refresh, will retry on next interval")
-
-    # Activity month coordinator — polls every 6 hours
     activity_month_coordinator = FeellooActivityMonthCoordinator(hass, entry, auth)
-    try:
-        await activity_month_coordinator.async_config_entry_first_refresh()
-    except Exception:
-        _LOGGER.warning("Activity month coordinator failed first refresh, will retry on next interval")
-
-    # Session coordinator — polls territory session details every 30 min
     session_coordinator = FeellooSessionCoordinator(hass, entry, auth)
-    try:
-        await session_coordinator.async_config_entry_first_refresh()
-    except Exception:
-        _LOGGER.warning("Session coordinator failed first refresh, will retry on next interval")
 
+    # Populate hass.data BEFORE first refresh so coordinators can reference each other
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "auth": auth,
         "main": main_coordinator,
@@ -81,6 +54,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "territory": territory_coordinator,
         "session": session_coordinator,
     }
+
+    # Now safe to do first refresh — all coordinators are in hass.data
+    for coordinator_name, coordinator in [
+        ("activity", activity_coordinator),
+        ("territory", territory_coordinator),
+        ("activity_week", activity_week_coordinator),
+        ("activity_month", activity_month_coordinator),
+        ("session", session_coordinator),
+    ]:
+        try:
+            await coordinator.async_config_entry_first_refresh()
+        except Exception:
+            _LOGGER.warning("%s coordinator failed first refresh, will retry on next interval", coordinator_name)
 
     # Register service
     async def handle_set_petite_souris(call) -> None:

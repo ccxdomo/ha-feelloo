@@ -499,8 +499,14 @@ class FeellooSessionCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch territory session details for all cats."""
-        territory_coordinator: FeellooTerritoryCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["territory"]
-        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        territory_coordinator = entry_data.get("territory")
+        main_coordinator = entry_data.get("main")
+        
+        if not territory_coordinator or not main_coordinator:
+            _LOGGER.warning("Missing coordinator reference in session update, skipping")
+            return {"sessions": {}}
+        
         cats = main_coordinator.cats
         sessions = {}
 
