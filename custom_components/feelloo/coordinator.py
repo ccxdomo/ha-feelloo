@@ -297,7 +297,11 @@ class FeellooActivityCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch activity data for all cats."""
-        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        main_coordinator = entry_data.get("main")
+        if not main_coordinator:
+            _LOGGER.warning("Missing main coordinator reference in activity update, skipping")
+            return {"activities": {}}
         cats = main_coordinator.cats
         today = dt_util.now().strftime("%Y-%m-%d")
         activities = {}
@@ -343,7 +347,11 @@ class FeellooActivityWeekCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch weekly activity data for all cats."""
-        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        main_coordinator = entry_data.get("main")
+        if not main_coordinator:
+            _LOGGER.warning("Missing main coordinator reference in activity week update, skipping")
+            return {"activities": {}}
         cats = main_coordinator.cats
         now = dt_util.now()
         # Get Monday of current week
@@ -392,7 +400,11 @@ class FeellooActivityMonthCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch monthly activity data for all cats."""
-        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        main_coordinator = entry_data.get("main")
+        if not main_coordinator:
+            _LOGGER.warning("Missing main coordinator reference in activity month update, skipping")
+            return {"activities": {}}
         cats = main_coordinator.cats
         now = dt_util.now()
         # First day of current month
@@ -441,7 +453,11 @@ class FeellooTerritoryCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch territory paths for all cats."""
-        main_coordinator: FeellooMainCoordinator = self.hass.data[DOMAIN][self.entry.entry_id]["main"]
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        main_coordinator = entry_data.get("main")
+        if not main_coordinator:
+            _LOGGER.warning("Missing main coordinator reference in territory update, skipping")
+            return {"paths": {}}
         cats = main_coordinator.cats
         paths_data = {}
 
