@@ -161,6 +161,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.auth = auth
         self._cancel_token_refresh = None
+        self._cancel_fast_polling_listen = None
         self._fast_polling_timers: dict[int, callable] = {}
 
         super().__init__(
@@ -178,7 +179,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
             self._async_refresh_token_callback,
             TOKEN_REFRESH_INTERVAL,
         )
-        self.hass.bus.async_listen("feelloo_fast_polling", self._handle_fast_polling_event)
+        self._cancel_fast_polling_listen = self.hass.bus.async_listen("feelloo_fast_polling", self._handle_fast_polling_event)
         await self.async_config_entry_first_refresh()
         await self._async_setup_devices()
 
@@ -186,6 +187,8 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         """Shutdown the coordinator."""
         if self._cancel_token_refresh:
             self._cancel_token_refresh()
+        if self._cancel_fast_polling_listen:
+            self._cancel_fast_polling_listen()
         for cat_id in list(self._fast_polling_timers.keys()):
             self._stop_fast_polling_timer(cat_id)
         await super().async_shutdown()
