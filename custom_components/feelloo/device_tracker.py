@@ -33,9 +33,6 @@ async def async_setup_entry(
 class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
     """Device tracker for a Feelloo cat."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "tracker"
-
     def __init__(
         self,
         coordinator: FeellooMainCoordinator,
@@ -55,13 +52,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         }
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         """Return the name of the tracker.
 
         Home Assistant generates the entity_id by slugifying this name,
         e.g. device_tracker.{cat_name_slug}.
         """
-        return self._cat_name
+        return None
 
     def _get_cat(self) -> dict | None:
         """Get the cat data from coordinator."""
