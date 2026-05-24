@@ -69,7 +69,7 @@ For each detected cat, the following entities are created:
 
 ### Binary Sensors
 - **Home** — whether the cat is at home
-- **In Range** — whether the tag is in Bluetooth range
+- **In Range** — whether the tag is in LoRa range
 - **Gateway Online** — whether the gateway is connected
 - **Charging** — whether the tag is charging
 - **Is Ringing** — whether the tag is currently ringing
@@ -77,7 +77,7 @@ For each detected cat, the following entities are created:
 - **Extended Search** — whether extended search mode is enabled
 
 ### Sensors
-- **Signal Strength** — BLE signal strength (%) from tag to gateway
+- **Signal Strength** — LoRa signal strength (%) from tag to gateway
   - Attribute: `rssi_dbm` — raw RSSI value
 - **Battery** — battery level (%)
 - **Latitude** / **Longitude** — last known GPS coordinates
