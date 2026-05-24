@@ -212,7 +212,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Starting fast polling for cat %s (1 min)", cat_id)
         cancel_timer = async_track_time_interval(
             self.hass,
-            lambda now: self.hass.async_create_task(self.async_request_refresh()),
+            lambda now: self.hass.add_job(self.async_request_refresh),
             FAST_POLLING_INTERVAL,
         )
         self._fast_polling_timers[cat_id] = cancel_timer
