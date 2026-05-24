@@ -105,6 +105,36 @@ For each detected cat, the following entities are created:
     - `last_seen`: ISO timestamp of last location update
     - `precision_meter`: GPS accuracy in meters
   - Icon: `mdi:cat`
+  - **Custom picture**: see [Custom Cat Images](#custom-cat-images) below
+
+### Custom Cat Images
+
+You can display a custom photo for each cat on the map and in the device tracker card.
+
+**How it works:**
+- At startup, the integration checks if an image file exists for each cat
+- If found, it automatically sets `entity_picture` on the device tracker
+- No API call or cloud storage needed — purely local files
+
+**Where to place the image:**
+
+Create the folder and copy your cat's photo:
+
+```bash
+mkdir -p /config/www/feelloo
+cp /path/to/your/photo.jpg /config/www/feelloo/pinceau.jpg
+```
+
+**File naming:**
+- The filename must match the **cat name slug** (lowercase, spaces replaced by underscores)
+- Example: cat named `Pinceau` → file must be named `pinceau.jpg` or `pinceau.png`
+- Example: cat named `Pinceau Le Chat` → file must be named `pinceau_le_chat.jpg`
+
+**Supported formats:** `.jpg` and `.png`
+
+**Restart required:** Home Assistant must be restarted after adding or changing images
+
+**Result:** the device tracker will show your cat's photo instead of the default `mdi:cat` icon on the map and in entity cards.
 
 ### Switches
 - **Petite Souris** — enables/disables extended search mode with fast polling
