@@ -62,7 +62,6 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         self._cat_uid = cat_uid
         self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_tracker"
-        self._attr_entity_picture = _resolve_entity_picture(cat_name)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, cat_uid)},
             "name": cat_name,
@@ -126,6 +125,11 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
             return "not_home"
         in_range = cat.get("presence", {}).get("status", {}).get("in_range")
         return "home" if in_range is True else "not_home"
+
+    @property
+    def entity_picture(self) -> str | None:
+        """Return the entity picture if a local image exists."""
+        return _resolve_entity_picture(self._cat_name)
 
     @property
     def icon(self) -> str:
