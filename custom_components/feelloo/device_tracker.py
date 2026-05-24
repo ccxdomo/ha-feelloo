@@ -33,6 +33,8 @@ async def async_setup_entry(
 class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
     """Device tracker for a Feelloo cat."""
 
+    _attr_has_entity_name = False
+
     def __init__(
         self,
         coordinator: FeellooMainCoordinator,
@@ -129,8 +131,4 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        cat = self._get_cat()
-        if not cat:
-            return False
-        geo = cat.get("geolocation", {}).get("last_geolocation", {})
-        return geo.get("latitude") is not None and geo.get("longitude") is not None
+        return self._get_cat() is not None
