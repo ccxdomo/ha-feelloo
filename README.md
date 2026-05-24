@@ -122,13 +122,15 @@ Create the folder and copy your cat's photo:
 
 ```bash
 mkdir -p /config/www/feelloo
-cp /path/to/your/photo.jpg /config/www/feelloo/pinceau.jpg
+cp /path/to/your/photo.jpg /config/www/feelloo/{cat_name}.jpg
 ```
+
+Replace `{cat_name}` with your cat's name slug (lowercase, spaces as underscores).
 
 **File naming:**
 - The filename must match the **cat name slug** (lowercase, spaces replaced by underscores)
-- Example: cat named `Pinceau` → file must be named `pinceau.jpg` or `pinceau.png`
-- Example: cat named `Pinceau Le Chat` → file must be named `pinceau_le_chat.jpg`
+- Example: cat named `Moustache` → file must be named `moustache.jpg` or `moustache.png`
+- Example: cat named `Moustache Le Chat` → file must be named `moustache_le_chat.jpg`
 
 **Supported formats:** `.jpg` and `.png`
 
