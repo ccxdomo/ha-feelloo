@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from homeassistant.components.device_tracker import SourceType
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import FeellooMainCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Base path for user-provided cat images
@@ -118,13 +121,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
     def state(self) -> str:
         """Return the state of the device tracker.
 
-        home if presence.status.in_range is True, otherwise not_home.
+        home if presence.status.home is True, otherwise not_home.
         """
         cat = self._get_cat()
         if not cat:
             return "not_home"
-        in_range = cat.get("presence", {}).get("status", {}).get("in_range")
-        return "home" if in_range is True else "not_home"
+        at_home = cat.get("presence", {}).get("status", {}).get("home")
+        return "home" if at_home is True else "not_home"
 
     @property
     def entity_picture(self) -> str | None:
@@ -147,7 +150,32 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         return {
             "last_seen": geo.get("date_time"),
             "precision_meter": geo.get("precision_meter"),
+            "latitude": geo.get("latitude"),
+            "longitude": geo.get("longitude"),
         }
+
+    @property
+    def force_update(self) -> bool:
+        """Force update — always write state so the map refreshes."""
+        return True
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator.
+
+        Force a state update so the map marker refreshes even when
+        coordinates have not changed (precision/signal may have).
+        """
+        cat = self._get_cat()
+        if cat:
+            geo = cat.get("geolocation", {}).get("last_geolocation", {})
+            _LOGGER.debug(
+                "Device tracker update for %s: lat=%s, lng=%s",
+                self._cat_name,
+                geo.get("latitude"),
+                geo.get("longitude"),
+            )
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
