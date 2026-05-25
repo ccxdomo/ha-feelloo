@@ -202,6 +202,17 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         )
         self._cancel_fast_polling_listen = self.hass.bus.async_listen("feelloo_fast_polling", self._handle_fast_polling_event)
         await self.async_config_entry_first_refresh()
+        # Restore fast polling state from API data after first refresh
+        for cat in self.cats:
+            cat_id = cat.get("cat_id")
+            if cat_id is None:
+                continue
+            programmed = cat.get("geolocation", {}).get("petite_souris", {}).get("programmed", False)
+            if programmed:
+                self._fast_polling_active.add(cat_id)
+            else:
+                self._fast_polling_active.discard(cat_id)
+        self._sync_fast_polling_timer()
         await self._async_setup_devices()
 
     async def async_shutdown(self) -> None:
@@ -293,6 +304,18 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
                 except UpdateFailed as err:
                     _LOGGER.warning("Failed to fetch cat detail for %s: %s", cat_id, err)
             enriched_cats.append(cat)
+        
+        # Fast polling auto-stop: sync _fast_polling_active with real programmed state
+        for cat in enriched_cats:
+            cat_id = cat.get("cat_id")
+            if cat_id is None:
+                continue
+            programmed = cat.get("geolocation", {}).get("petite_souris", {}).get("programmed", False)
+            if programmed:
+                self._fast_polling_active.add(cat_id)
+            else:
+                self._fast_polling_active.discard(cat_id)
+        self._sync_fast_polling_timer()
         
         return {"cats": enriched_cats}
 
