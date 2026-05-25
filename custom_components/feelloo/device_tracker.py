@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 from homeassistant.components.device_tracker import SourceType
@@ -45,7 +46,7 @@ async def async_setup_entry(
     entities = []
     for cat in main_coordinator.cats:
         cat_uid = cat.get("_id")
-        name = cat.get("profile", {}).get("name", "Unknown")
+        name = (cat.get("profile") or {}).get("name", "Unknown")
         if not cat_uid:
             continue
         entities.append(FeellooDeviceTracker(hass, main_coordinator, cat_uid, name))
@@ -111,12 +112,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         cat = self._get_cat()
         if not cat:
             return None
-        lat = cat.get("geolocation", {}).get("last_geolocation", {}).get("latitude")
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        lat = geo.get("latitude")
         if lat is None:
             return None
         try:
             lat = float(lat)
-            if not -90 <= lat <= 90:
+            if not -90 <= lat <= 90 or not math.isfinite(lat):
                 return None
             return lat
         except (ValueError, TypeError):
@@ -128,12 +130,13 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         cat = self._get_cat()
         if not cat:
             return None
-        lng = cat.get("geolocation", {}).get("last_geolocation", {}).get("longitude")
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        lng = geo.get("longitude")
         if lng is None:
             return None
         try:
             lng = float(lng)
-            if not -180 <= lng <= 180:
+            if not -180 <= lng <= 180 or not math.isfinite(lng):
                 return None
             return lng
         except (ValueError, TypeError):
@@ -145,12 +148,16 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         cat = self._get_cat()
         if not cat:
             return None
-        accuracy = cat.get("geolocation", {}).get("last_geolocation", {}).get("precision_meter")
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        accuracy = geo.get("precision_meter")
         if accuracy is None:
             return None
         try:
-            return int(float(accuracy))
-        except (ValueError, TypeError):
+            accuracy = float(accuracy)
+            if not (0 <= accuracy <= 10000) or not math.isfinite(accuracy):
+                return None
+            return int(accuracy)
+        except (ValueError, TypeError, OverflowError):
             return None
 
     @property
@@ -170,7 +177,7 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         if not cat:
             return {}
 
-        geo = cat.get("geolocation", {}).get("last_geolocation", {})
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
         return {
             "last_seen": geo.get("date_time"),
             "precision_meter": geo.get("precision_meter"),
@@ -185,14 +192,22 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         """
         cat = self._get_cat()
         if cat:
-            geo = cat.get("geolocation", {}).get("last_geolocation", {})
+            geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
             _LOGGER.debug(
                 "Device tracker update for %s: lat=%s, lng=%s",
                 self._cat_name,
                 geo.get("latitude"),
                 geo.get("longitude"),
             )
+            self.hass.add_job(self._async_refresh_entity_picture)
         self.async_write_ha_state()
+
+    async def _async_refresh_entity_picture(self) -> None:
+        """Refresh entity picture if it changed."""
+        new_picture = await _async_resolve_entity_picture(self.hass, self._cat_name)
+        if new_picture != self._entity_picture:
+            self._entity_picture = new_picture
+            self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
