@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -11,6 +12,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     DOMAIN,
@@ -22,6 +24,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+AUTH_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
 AUTH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_EMAIL): str,
@@ -30,20 +34,38 @@ AUTH_SCHEMA = vol.Schema(
 )
 
 
-async def _async_test_credentials(email: str, password: str) -> bool:
-    """Test Firebase credentials."""
+async def _async_test_credentials(hass, email: str, password: str) -> tuple[bool, str | None]:
+    """Test Firebase credentials.
+    
+    Returns (success, error_key) where error_key is None on success,
+    or 'cannot_connect', 'invalid_auth' on failure.
+    """
     url = f"{FIREBASE_SIGNIN_URL}?key={FIREBASE_API_KEY}"
     payload = {
         "email": email,
         "password": password,
         "returnSecureToken": True,
     }
+    session = async_get_clientsession(hass)
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as resp:
-                return resp.status == 200
-    except aiohttp.ClientError:
-        return False
+        async with session.post(url, json=payload, timeout=AUTH_TIMEOUT) as resp:
+            if resp.status == 200:
+                return True, None
+            try:
+                data = await resp.json()
+                error = data.get("error", {}).get("message", "")
+                _LOGGER.debug("Firebase auth error: %s", error)
+            except Exception:
+                error = ""
+            if "INVALID_PASSWORD" in error or "EMAIL_NOT_FOUND" in error or "INVALID_EMAIL" in error:
+                return False, "invalid_auth"
+            return False, "cannot_connect"
+    except asyncio.TimeoutError:
+        _LOGGER.warning("Firebase auth timeout for %s", email)
+        return False, "cannot_connect"
+    except aiohttp.ClientError as err:
+        _LOGGER.warning("Firebase auth connection error: %s", err)
+        return False, "cannot_connect"
 
 
 class FeellooConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -58,10 +80,10 @@ class FeellooConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            email = user_input[CONF_EMAIL]
+            email = user_input[CONF_EMAIL].strip().casefold()
             password = user_input[CONF_PASSWORD]
 
-            valid = await _async_test_credentials(email, password)
+            valid, error_key = await _async_test_credentials(self.hass, email, password)
             if valid:
                 await self.async_set_unique_id(email)
                 self._abort_if_unique_id_configured()
@@ -69,7 +91,7 @@ class FeellooConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=email,
                     data={CONF_EMAIL: email, CONF_PASSWORD: password},
                 )
-            errors["base"] = "invalid_auth"
+            errors["base"] = error_key or "invalid_auth"
 
         return self.async_show_form(
             step_id="user",
@@ -98,16 +120,18 @@ class FeellooOptionsFlowHandler(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            email = user_input[CONF_EMAIL]
+            email = user_input[CONF_EMAIL].strip().casefold()
             password = user_input[CONF_PASSWORD]
 
-            valid = await _async_test_credentials(email, password)
+            valid, error_key = await _async_test_credentials(self.hass, email, password)
             if valid:
-                return self.async_create_entry(
-                    title=email,
+                # Update config entry data with new credentials
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
                     data={CONF_EMAIL: email, CONF_PASSWORD: password},
                 )
-            errors["base"] = "invalid_auth"
+                return self.async_create_entry(title=email, data={})
+            errors["base"] = error_key or "invalid_auth"
 
         return self.async_show_form(
             step_id="init",

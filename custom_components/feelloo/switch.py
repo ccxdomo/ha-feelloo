@@ -113,6 +113,7 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
         """Call the Petite Souris API via coordinator and handle 204 No Content explicitly."""
         try:
             await self.coordinator.async_set_petite_souris(self._cat_id, duration_hours)
+            await self.coordinator.async_request_refresh()
         except UpdateFailed as exc:
             raise HomeAssistantError(f"Erreur Petite Souris: {exc}") from exc
 

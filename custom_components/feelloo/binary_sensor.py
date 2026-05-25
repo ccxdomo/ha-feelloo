@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
@@ -14,6 +16,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import FeellooMainCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 BINARY_SENSOR_DEFINITIONS = {
     "home": ("mdi:home", None),
     "in_range": ("mdi:bluetooth", None),
@@ -25,20 +29,45 @@ BINARY_SENSOR_DEFINITIONS = {
 }
 
 
+def _bool_at(data: dict, *path: str) -> bool | None:
+    """Safely walk a nested dict path and return a bool or None."""
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current if isinstance(current, bool) else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Feelloo binary sensors."""
-    main_coordinator: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
+    try:
+        main_coordinator: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
+    except (KeyError, TypeError):
+        _LOGGER.error("Main coordinator missing for entry %s", entry.entry_id)
+        return
+
     entities = []
-    for cat in main_coordinator.cats:
+    seen_ids: set[str] = set()
+
+    for cat in main_coordinator.cats or []:
+        if not isinstance(cat, dict):
+            continue
         cat_uid = cat.get("_id")
-        name = cat.get("profile", {}).get("name", "Unknown")
-        if not cat_uid:
+        name = (cat.get("profile") or {}).get("name", "Unknown")
+        if not isinstance(cat_uid, str) or not cat_uid:
+            _LOGGER.debug("Skipping cat with invalid _id")
             continue
         for key, (icon, device_class) in BINARY_SENSOR_DEFINITIONS.items():
+            unique_id = f"{cat_uid}_{key}"
+            if unique_id in seen_ids:
+                _LOGGER.warning("Duplicate unique_id %s, skipping", unique_id)
+                continue
+            seen_ids.add(unique_id)
             entities.append(
                 FeellooBinarySensor(main_coordinator, cat_uid, name, key, icon, device_class)
             )
@@ -77,8 +106,10 @@ class FeellooBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     def _get_cat(self) -> dict | None:
         """Get the cat data from coordinator."""
+        if self.coordinator.cats is None:
+            return None
         for cat in self.coordinator.cats:
-            if cat.get("_id") == self._cat_uid:
+            if isinstance(cat, dict) and cat.get("_id") == self._cat_uid:
                 return cat
         return None
 
@@ -89,22 +120,22 @@ class FeellooBinarySensor(CoordinatorEntity, BinarySensorEntity):
         if not cat:
             return None
         if self._key == "home":
-            return cat.get("presence", {}).get("status", {}).get("home", False)
+            return _bool_at(cat, "presence", "status", "home")
         if self._key == "in_range":
-            return cat.get("presence", {}).get("status", {}).get("in_range", False)
+            return _bool_at(cat, "presence", "status", "in_range")
         if self._key == "gateway_online":
-            return cat.get("gateway", {}).get("online", False)
+            return _bool_at(cat, "gateway", "online")
         if self._key == "charging":
-            return cat.get("gateway", {}).get("tag", {}).get("status", {}).get("charging", False)
+            return _bool_at(cat, "gateway", "tag", "status", "charging")
         if self._key == "is_ringing":
-            return cat.get("gateway", {}).get("tag", {}).get("status", {}).get("is_ringing", False)
+            return _bool_at(cat, "gateway", "tag", "status", "is_ringing")
         if self._key == "battery_low":
-            return cat.get("gateway", {}).get("tag", {}).get("display_battery_low_warning", False)
+            return _bool_at(cat, "gateway", "tag", "display_battery_low_warning")
         if self._key == "extended_search":
-            return cat.get("gateway", {}).get("tag", {}).get("extended_search", {}).get("enabled", False)
+            return _bool_at(cat, "gateway", "tag", "extended_search", "enabled")
         return False
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self._get_cat() is not None
+        return super().available and self._get_cat() is not None
