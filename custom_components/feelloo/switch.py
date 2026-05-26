@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
 from .coordinator import FeellooMainCoordinator
@@ -57,6 +61,7 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
             "manufacturer": "Feelloo",
             "model": "Cat Tracker",
         }
+        self._lock = asyncio.Lock()
 
     def _get_cat(self) -> dict | None:
         """Get the cat data from coordinator."""
@@ -67,7 +72,12 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
 
     def _get_duration(self) -> int:
         """Get the current duration value from the number entity."""
-        entity_id = f"number.{self._cat_name.lower().replace(' ', '_')}_petite_souris_duration"
+        er = async_get_entity_registry(self.hass)
+        entity_id = er.async_get_entity_id(
+            "number", DOMAIN, f"{self._cat_uid}_petite_souris_duration"
+        )
+        if entity_id is None:
+            entity_id = f"number.{self._cat_name.lower().replace(' ', '_')}_petite_souris_duration"
         state = self.hass.states.get(entity_id)
         if state and state.state not in (None, "unavailable", "unknown"):
             try:
@@ -100,32 +110,34 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
         return self._get_cat() is not None
 
     async def _async_call_petite_souris(self, duration_hours: int) -> None:
-        """Call the Petite Souris API and handle 204 No Content explicitly."""
+        """Call the Petite Souris API via coordinator and handle 204 No Content explicitly."""
         try:
-            response = await self.coordinator.auth.async_api_request(
-                "POST",
-                f"/users/cats/{self._cat_id}/territory/petite-souris-button",
-                json_payload={"duration_hours": duration_hours},
-            )
-            # 204 No Content = success, no body to parse
-            # async_api_request already handles 204 by returning None
+            await self.coordinator.async_set_petite_souris(self._cat_id, duration_hours)
             await self.coordinator.async_request_refresh()
-        except Exception as exc:
+        except UpdateFailed as exc:
             raise HomeAssistantError(f"Erreur Petite Souris: {exc}") from exc
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
-        duration = self._get_duration()
-        await self._async_call_petite_souris(duration)
-        self.hass.bus.async_fire("feelloo_fast_polling", {
-            "cat_id": self._cat_id,
-            "enabled": True,
-        })
+        async with self._lock:
+            duration = self._get_duration()
+            if not (1 <= duration <= 72):
+                raise HomeAssistantError(
+                    f"Durée Petite Souris invalide: {duration}h (doit être entre 1 et 72h)"
+                )
+            await self._async_call_petite_souris(duration)
+            # Only emit fast polling after successful POST
+            self.hass.bus.async_fire("feelloo_fast_polling", {
+                "cat_id": self._cat_id,
+                "enabled": True,
+            })
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the switch off."""
-        await self._async_call_petite_souris(0)
-        self.hass.bus.async_fire("feelloo_fast_polling", {
-            "cat_id": self._cat_id,
-            "enabled": False,
-        })
+        async with self._lock:
+            await self._async_call_petite_souris(0)
+            # Only emit fast polling after successful POST
+            self.hass.bus.async_fire("feelloo_fast_polling", {
+                "cat_id": self._cat_id,
+                "enabled": False,
+            })

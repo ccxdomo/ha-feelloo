@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 from homeassistant.components.device_tracker import SourceType
@@ -11,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import DOMAIN
 from .coordinator import FeellooMainCoordinator
@@ -22,13 +24,15 @@ _LOGGER = logging.getLogger(__name__)
 _LOCAL_IMAGE_DIR = "/config/www/feelloo"
 
 
-def _resolve_entity_picture(cat_name: str) -> str | None:
+async def _async_resolve_entity_picture(hass: HomeAssistant, cat_name: str) -> str | None:
     """Return the entity_picture path if a local image exists for this cat."""
-    slug = cat_name.lower().replace(" ", "_")
-    for ext in ("jpg", "png"):
-        path = os.path.join(_LOCAL_IMAGE_DIR, f"{slug}.{ext}")
-        if os.path.isfile(path):
-            return f"/local/feelloo/{slug}.{ext}"
+    safe_name = slugify(cat_name)
+    if not safe_name:
+        return None
+    for ext in ("jpg", "jpeg", "png", "webp"):
+        path = os.path.join(_LOCAL_IMAGE_DIR, f"{safe_name}.{ext}")
+        if await hass.async_add_executor_job(os.path.isfile, path):
+            return f"/local/feelloo/{safe_name}.{ext}"
     return None
 
 
@@ -42,10 +46,10 @@ async def async_setup_entry(
     entities = []
     for cat in main_coordinator.cats:
         cat_uid = cat.get("_id")
-        name = cat.get("profile", {}).get("name", "Unknown")
+        name = (cat.get("profile") or {}).get("name", "Unknown")
         if not cat_uid:
             continue
-        entities.append(FeellooDeviceTracker(main_coordinator, cat_uid, name))
+        entities.append(FeellooDeviceTracker(hass, main_coordinator, cat_uid, name))
     async_add_entities(entities)
 
 
@@ -53,15 +57,18 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
     """Device tracker for a Feelloo cat."""
 
     _attr_has_entity_name = False
+    _attr_force_update = True
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator: FeellooMainCoordinator,
         cat_uid: str,
         cat_name: str,
     ) -> None:
         """Initialize the tracker."""
         super().__init__(coordinator)
+        self.hass = hass
         self._cat_uid = cat_uid
         self._cat_name = cat_name
         self._attr_unique_id = f"{cat_uid}_tracker"
@@ -71,6 +78,12 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
             "manufacturer": "Feelloo",
             "model": "Cat Tracker",
         }
+        self._entity_picture: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self._entity_picture = await _async_resolve_entity_picture(self.hass, self._cat_name)
 
     @property
     def name(self) -> str:
@@ -99,7 +112,17 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         cat = self._get_cat()
         if not cat:
             return None
-        return cat.get("geolocation", {}).get("last_geolocation", {}).get("latitude")
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        lat = geo.get("latitude")
+        if lat is None:
+            return None
+        try:
+            lat = float(lat)
+            if not -90 <= lat <= 90 or not math.isfinite(lat):
+                return None
+            return lat
+        except (ValueError, TypeError):
+            return None
 
     @property
     def longitude(self) -> float | None:
@@ -107,32 +130,40 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         cat = self._get_cat()
         if not cat:
             return None
-        return cat.get("geolocation", {}).get("last_geolocation", {}).get("longitude")
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        lng = geo.get("longitude")
+        if lng is None:
+            return None
+        try:
+            lng = float(lng)
+            if not -180 <= lng <= 180 or not math.isfinite(lng):
+                return None
+            return lng
+        except (ValueError, TypeError):
+            return None
 
     @property
-    def location_accuracy(self) -> int:
+    def location_accuracy(self) -> int | None:
         """Return the gps accuracy."""
         cat = self._get_cat()
         if not cat:
-            return 0
-        return cat.get("geolocation", {}).get("last_geolocation", {}).get("precision_meter", 0)
-
-    @property
-    def state(self) -> str:
-        """Return the state of the device tracker.
-
-        home if presence.status.home is True, otherwise not_home.
-        """
-        cat = self._get_cat()
-        if not cat:
-            return "not_home"
-        at_home = cat.get("presence", {}).get("status", {}).get("home")
-        return "home" if at_home is True else "not_home"
+            return None
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
+        accuracy = geo.get("precision_meter")
+        if accuracy is None:
+            return None
+        try:
+            accuracy = float(accuracy)
+            if not (0 <= accuracy <= 10000) or not math.isfinite(accuracy):
+                return None
+            return int(accuracy)
+        except (ValueError, TypeError, OverflowError):
+            return None
 
     @property
     def entity_picture(self) -> str | None:
         """Return the entity picture if a local image exists."""
-        return _resolve_entity_picture(self._cat_name)
+        return self._entity_picture
 
     @property
     def icon(self) -> str:
@@ -146,18 +177,11 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         if not cat:
             return {}
 
-        geo = cat.get("geolocation", {}).get("last_geolocation", {})
+        geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
         return {
             "last_seen": geo.get("date_time"),
             "precision_meter": geo.get("precision_meter"),
-            "latitude": geo.get("latitude"),
-            "longitude": geo.get("longitude"),
         }
-
-    @property
-    def force_update(self) -> bool:
-        """Force update — always write state so the map refreshes."""
-        return True
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -168,16 +192,24 @@ class FeellooDeviceTracker(CoordinatorEntity, TrackerEntity):
         """
         cat = self._get_cat()
         if cat:
-            geo = cat.get("geolocation", {}).get("last_geolocation", {})
+            geo = (cat.get("geolocation") or {}).get("last_geolocation") or {}
             _LOGGER.debug(
                 "Device tracker update for %s: lat=%s, lng=%s",
                 self._cat_name,
                 geo.get("latitude"),
                 geo.get("longitude"),
             )
+            self.hass.add_job(self._async_refresh_entity_picture)
         self.async_write_ha_state()
+
+    async def _async_refresh_entity_picture(self) -> None:
+        """Refresh entity picture if it changed."""
+        new_picture = await _async_resolve_entity_picture(self.hass, self._cat_name)
+        if new_picture != self._entity_picture:
+            self._entity_picture = new_picture
+            self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self._get_cat() is not None
+        return super().available and self._get_cat() is not None

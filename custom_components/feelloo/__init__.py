@@ -6,7 +6,9 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
 from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
@@ -31,7 +33,7 @@ SERVICE_SCHEMA = vol.Schema({
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Feelloo from a config entry."""
-    auth = FeellooAuthManager(entry.data["email"], entry.data["password"])
+    auth = FeellooAuthManager(hass, entry.data["email"], entry.data["password"])
 
     # Main coordinator — polls /users/cats every 5 min
     main_coordinator = FeellooMainCoordinator(hass, entry, auth)
@@ -65,23 +67,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ]:
         try:
             await coordinator.async_config_entry_first_refresh()
-        except Exception:
-            _LOGGER.warning("%s coordinator failed first refresh, will retry on next interval", coordinator_name)
+        except UpdateFailed as exc:
+            _LOGGER.warning(
+                "%s coordinator failed first refresh, will retry on next interval",
+                coordinator_name,
+                exc_info=exc,
+            )
 
-    # Register service
-    async def handle_set_petite_souris(call) -> None:
-        """Handle the set_petite_souris service call."""
-        cat_id = call.data["cat_id"]
-        duration_hours = call.data["duration_hours"]
-        await main_coordinator.async_set_petite_souris(cat_id, duration_hours)
-        await main_coordinator.async_request_refresh()
+    # Register service only once
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_PETITE_SOURIS):
+        async def handle_set_petite_souris(call) -> None:
+            """Handle the set_petite_souris service call."""
+            cat_id = call.data["cat_id"]
+            duration_hours = call.data["duration_hours"]
+            
+            # Find the coordinator for this cat
+            target_entry = None
+            domain_data = hass.data.get(DOMAIN, {})
+            if not isinstance(domain_data, dict):
+                _LOGGER.error("hass.data[%s] is not a dict: %s", DOMAIN, type(domain_data))
+                raise HomeAssistantError("Internal error: Feelloo data corrupted")
+            
+            for entry_id, data in domain_data.items():
+                if not isinstance(data, dict):
+                    continue
+                main = data.get("main")
+                if main:
+                    valid_cat_ids = {c.get("cat_id") for c in main.cats if isinstance(c.get("cat_id"), int)}
+                    if cat_id in valid_cat_ids:
+                        target_entry = main
+                        break
+            
+            if target_entry is None:
+                raise HomeAssistantError(f"Cat {cat_id} not found in any Feelloo account")
+            
+            await target_entry.async_set_petite_souris(cat_id, duration_hours)
+            await target_entry.async_request_refresh()
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_PETITE_SOURIS,
-        handle_set_petite_souris,
-        schema=SERVICE_SCHEMA,
-    )
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_PETITE_SOURIS,
+            handle_set_petite_souris,
+            schema=SERVICE_SCHEMA,
+        )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -101,7 +129,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await data["activity_month"].async_shutdown()
             await data["territory"].async_shutdown()
             await data["session"].async_shutdown()
-        hass.services.async_remove(DOMAIN, SERVICE_SET_PETITE_SOURIS)
+        
+        # Only remove service if no entries remain
+        if not hass.data.get(DOMAIN):
+            hass.services.async_remove(DOMAIN, SERVICE_SET_PETITE_SOURIS)
     return unload_ok
 
 
