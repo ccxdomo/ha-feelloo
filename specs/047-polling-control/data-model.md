@@ -60,10 +60,10 @@ Note: while the override is engaged, `polling_enabled` / `polling_interval_minut
 
 | Entity | Platform | unique_id | Category | Translation key | Notes |
 |--------|----------|-----------|----------|-----------------|-------|
-| Automatic polling toggle | switch | `{entry.unique_id or entry.entry_id}_polling_enabled` | CONFIG | `switch.polling_enabled` | plain `SwitchEntity`, not CoordinatorEntity; state from `get_polling_settings`; turn on/off = live apply then persist |
-| Polling interval | number | `{uid}_polling_interval` | CONFIG | `number.polling_interval` | plain `NumberEntity`; min 1, max 1440, step 1, unit "min", mode "box"; set = live apply then persist |
+| Automatic polling toggle | switch | `{entry.unique_id or entry.entry_id}_polling_enabled` | CONFIG | `switch.polling_enabled` (base) / `switch.polling_enabled_override` (while §4.2 override runs) | plain `SwitchEntity`, not CoordinatorEntity; state = EFFECTIVE polling (owner follow-up 2: reads ON while the §4.2 override runs, otherwise the persisted preference); attributes `saved_polling_enabled` / `saved_polling_interval_minutes` / `effective_polling_enabled` / `effective_polling_interval_minutes`; icon `mdi:clock-fast` + registry `translation_key` = `polling_enabled_override` while overridden (registry update skipped when unregistered/user-renamed); turn on/off = live apply then persist (command semantics unchanged) |
+| Polling interval | number | `{uid}_polling_interval` | CONFIG | `number.polling_interval` | plain `NumberEntity`; min 1, max 1440, step 1, unit "min", mode "box"; set = live apply then persist; native_value = saved preference (unchanged, owner follow-up 2); attribute `effective_polling_interval_minutes` exposes the §4.2 override cadence |
 | Refresh data | button | `{uid}_refresh_data` | none | `button.refresh_data` | `ButtonEntity`; press = main refresh (raise on failure) + gather(refresh 5 others, log failures) |
-| Last update | sensor | `{uid}_last_update` | DIAGNOSTIC | `sensor.last_update` | `CoordinatorEntity(main)`; `device_class=TIMESTAMP`; native_value = `last_successful_fetch`; attributes `polling_enabled`, `polling_interval_minutes` |
+| Last update | sensor | `{uid}_last_update` | DIAGNOSTIC | `sensor.last_update` | `CoordinatorEntity(main)`; `device_class=TIMESTAMP`; native_value = `last_successful_fetch`; attributes `polling_enabled`, `polling_interval_minutes`, `petite_souris_override` (single source of truth for "is the override running") |
 
 Entity id examples (single account, cat "Moustache"): `switch.feelloo_automatic_polling`, `number.feelloo_polling_interval`, `button.feelloo_refresh_data`, `sensor.feelloo_last_update`.
 

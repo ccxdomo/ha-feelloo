@@ -54,7 +54,14 @@ Run the manual matrix on the owner's live install with debug logging (`custom_co
 - `coordinator.py`: transient `_ps_override` / `_ps_override_cancelled` flags; `petite_souris_override` property; internal `_set_effective_polling` (no forced refresh) and `_restore_user_polling_settings` (re-resolves `get_polling_settings(entry)` live); `_sync_fast_polling_timer` extended — engage override on set empty→non-empty, disengage + restore on non-empty→empty, reset the cancel latch when the mode ends, side timer suppressed during override; `async_apply_polling_settings` cancels the override on any manual call (before the idempotency early-return).
 - `sensor.py`: diagnostic sensor exposes `petite_souris_override` (effective-state attributes).
 - README/quickstart/contract/data-model updated for the interplay.
-**Accept:** V15–V19 behavior; `entry.options` NEVER written by the override; override transitions perform no forced refresh; manual-wins with the cancelled latch (no re-engage while the mode stays active, re-engage after a full off/on); restart reconstruction from the API `programmed` state; polling switch/number behavior unchanged (they read the preference).
+**Accept:** V15–V19 behavior; `entry.options` NEVER written by the override; override transitions perform no forced refresh; manual-wins with the cancelled latch (no re-engage while the mode stays active, re-engage after a full off/on); restart reconstruction from the API `programmed` state; polling switch/number behavior unchanged (they read the preference). *(Superseded in part by T10: the switch now shows the EFFECTIVE state while the override runs — command behavior unchanged.)*
+
+### T10 — Override visibility on the polling switch (owner follow-up 2, 2026-10-08)
+- `switch.py`: `is_on` reports the effective state during the §4.2 override (reads ON); dynamic icon (`mdi:clock-fast` while overridden, `mdi:autorenew` otherwise); `extra_state_attributes` = `saved_polling_enabled` / `saved_polling_interval_minutes` / `effective_polling_enabled` / `effective_polling_interval_minutes`; coordinator listener (`async_add_listener`) for live re-render on override transitions; entity-registry `translation_key` swap to `polling_enabled_override` via the supported `async_update_entity` API (guarded: skip when unregistered or user-renamed).
+- `number.py`: `native_value` unchanged (saved preference); `effective_polling_interval_minutes` attribute + coordinator listener.
+- `translations/en.json` + `fr.json`: `entity.switch.polling_enabled_override.name` (full parity).
+- README/quickstart/contract/data-model updated for the visible-override behavior.
+**Accept:** V20 matrix row; the OFF-during-override command semantics unchanged and visibly NOT a no-op (switch flips ON→OFF, polling stops); the last-update sensor's `petite_souris_override` attribute remains the single source of truth; labels exist in both languages.
 
 ## Notes for Reviewer
 

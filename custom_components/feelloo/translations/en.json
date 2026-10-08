@@ -145,6 +145,9 @@
       },
       "polling_enabled": {
         "name": "Automatic Polling"
+      },
+      "polling_enabled_override": {
+        "name": "Automatic Polling (Petite Souris)"
       }
     },
     "number": {

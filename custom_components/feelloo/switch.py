@@ -7,7 +7,7 @@ import asyncio
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
@@ -146,12 +146,25 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
 
 
 class FeellooPollingSwitch(SwitchEntity):
-    """Switch to enable/disable automatic polling of the main coordinator."""
+    """Switch to enable/disable automatic polling of the main coordinator.
+
+    Owner follow-up 2 (2026-10-08): while the Petite Souris override runs,
+    the switch reports the EFFECTIVE state (on, 1-minute polling) — a
+    control reading "off" while data keeps flowing would be misleading.
+    The override is additionally made visible through a distinct icon, the
+    "(Petite Souris)" name variant (entity-registry translation_key swap)
+    and saved/effective attributes. Turning the switch off during the
+    override still cancels it (manual wins, contract 047 §4.2) — the
+    command semantics are unchanged.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "polling_enabled"
-    _attr_icon = "mdi:autorenew"
     _attr_entity_category = EntityCategory.CONFIG
+
+    _BASE_ICON = "mdi:autorenew"
+    _OVERRIDE_ICON = "mdi:clock-fast"
+    _OVERRIDE_TRANSLATION_KEY = "polling_enabled_override"
 
     def __init__(
         self,
@@ -172,18 +185,91 @@ class FeellooPollingSwitch(SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return true if automatic polling is enabled."""
+        """Return true if polling is effectively running.
+
+        Reports the effective state so the visible label never falsely
+        reads "off" while data flows: while the Petite Souris override is
+        active, polling runs (at 1 minute) even when the saved preference
+        is disabled. The saved preference always remains visible in the
+        attributes.
+        """
+        if self._coordinator.petite_souris_override:
+            return True
         return get_polling_settings(self._entry)[0]
 
+    @property
+    def icon(self) -> str | None:
+        """Return a distinct icon while the Petite Souris override runs."""
+        if self._coordinator.petite_souris_override:
+            return self._OVERRIDE_ICON
+        return self._BASE_ICON
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose the saved preference and the effective state."""
+        saved_enabled, saved_interval = get_polling_settings(self._entry)
+        return {
+            "saved_polling_enabled": saved_enabled,
+            "saved_polling_interval_minutes": saved_interval,
+            "effective_polling_enabled": self._coordinator.polling_enabled,
+            "effective_polling_interval_minutes": (
+                self._coordinator.polling_interval_minutes
+            ),
+        }
+
     async def async_added_to_hass(self) -> None:
-        """Register a listener so the state follows option changes made elsewhere."""
+        """Track option changes and Petite Souris override transitions."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self._entry.add_update_listener(self._async_on_entry_update)
         )
+        # Override transitions happen inside coordinator fetches; re-render
+        # on every coordinator update so the visible state stays truthful.
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+        self._async_sync_override_visibility()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Re-render after a coordinator update (override transitions)."""
+        self._async_sync_override_visibility()
 
     async def _async_on_entry_update(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Write state after options changed through another surface."""
+        self._async_sync_override_visibility()
+
+    @callback
+    def _async_sync_override_visibility(self) -> None:
+        """Make the Petite Souris override visible on this switch.
+
+        HA switch states are binary, so the override cannot be a third
+        state: the state label stays truthful through is_on (effective
+        state), and the override marker is carried by the icon, the
+        saved/effective attributes, and the displayed name — swapped via
+        the supported entity-registry translation_key update so the UI
+        shows "Automatic Polling (Petite Souris)" while the boost runs.
+        Skipped when the entity is unregistered or renamed by the user.
+        """
+        desired_key = (
+            self._OVERRIDE_TRANSLATION_KEY
+            if self._coordinator.petite_souris_override
+            else "polling_enabled"
+        )
+        entity_id = getattr(self, "_attr_entity_id", None)
+        if entity_id:
+            registry = async_get_entity_registry(self.hass)
+            entry = registry.async_get(entity_id)
+            if (
+                entry is not None
+                and entry.translation_key != desired_key
+                and entry.name is None
+            ):
+                # Never clobber a user-defined name; the translated variant
+                # only applies while the integration names the entity.
+                registry.async_update_entity(
+                    entity_id, translation_key=desired_key
+                )
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -191,7 +277,12 @@ class FeellooPollingSwitch(SwitchEntity):
         await self._async_set_polling(True)
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Disable automatic polling."""
+        """Disable automatic polling.
+
+        During a Petite Souris override this cancels the temporary boost
+        (manual wins) and is NOT a no-op: polling stops and the switch
+        visibly flips to off.
+        """
         await self._async_set_polling(False)
 
     async def _async_set_polling(self, enabled: bool) -> None:
@@ -205,4 +296,4 @@ class FeellooPollingSwitch(SwitchEntity):
             self._entry,
             options={**self._entry.options, CONF_POLLING_ENABLED: enabled},
         )
-        self.async_write_ha_state()
+        self._async_sync_override_visibility()

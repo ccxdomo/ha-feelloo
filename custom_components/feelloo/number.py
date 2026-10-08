@@ -7,7 +7,7 @@ import logging
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -144,15 +144,40 @@ class FeellooPollingIntervalNumber(NumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the persisted polling interval in minutes."""
+        """Return the persisted polling interval in minutes.
+
+        Always shows the user's saved preference — even during a Petite
+        Souris override (the temporary 1-minute cadence is visible in the
+        effective_polling_interval_minutes attribute instead).
+        """
         return get_polling_settings(self._entry)[1]
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose the effective interval while the Petite Souris override runs."""
+        return {
+            "effective_polling_interval_minutes": (
+                self._coordinator.polling_interval_minutes
+            ),
+        }
+
     async def async_added_to_hass(self) -> None:
-        """Register a listener so the state follows option changes made elsewhere."""
+        """Register listeners so the state follows changes made elsewhere."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self._entry.add_update_listener(self._async_on_entry_update)
         )
+        # Override transitions happen inside coordinator fetches; re-render
+        # on coordinator updates so the effective-interval attribute stays
+        # fresh while the Petite Souris boost runs.
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Re-render after a coordinator update (override transitions)."""
+        self.async_write_ha_state()
 
     async def _async_on_entry_update(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Write state after options changed through another surface."""

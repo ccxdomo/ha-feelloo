@@ -27,6 +27,7 @@ Run: python3 specs/047-polling-control/verification-harness.py
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import types
@@ -53,6 +54,7 @@ class _FakeHass:
         self.bus = _FakeBus()
         self.config_entries = _FakeConfigEntries()
         self.device_registry = _FakeDeviceRegistry()
+        self.entity_registry = _FakeEntityRegistry()
         self.interval_timers = []          # async_track_time_interval calls
         self.is_stopping = False
         self._session = _FakeSession()
@@ -150,8 +152,26 @@ def _async_get_device_registry(hass):
     return hass.device_registry
 
 
+class _FakeEntityRegistry:
+    """Miniature of the entity registry: records translation_key updates."""
+
+    def __init__(self):
+        self.entries = {}
+        self.updates = []
+
+    def async_get(self, entity_id):
+        return self.entries.get(entity_id)
+
+    def async_update_entity(self, entity_id, **kwargs):
+        self.updates.append((entity_id, dict(kwargs)))
+        entry = self.entries.get(entity_id)
+        if entry is not None:
+            for key, value in kwargs.items():
+                setattr(entry, key, value)
+
+
 def _async_get_entity_registry(hass):
-    raise NotImplementedError("not needed by the harness tests")
+    return hass.entity_registry
 
 
 # --- update_coordinator miniature (semantics verified from HA 2026.9.0) ----
@@ -834,6 +854,122 @@ async def test_petite_souris_override():
     logging.getLogger("custom_components.feelloo.coordinator").removeHandler(capture)
 
 
+async def test_override_visibility():
+    """Owner follow-up 2: the Petite Souris override is visible on the switch.
+
+    Matrix row V20 — the owner's exact test scenario: polling disabled,
+    Petite Souris activated, the switch must not read as a plain "off".
+    """
+    from custom_components.feelloo.const import get_polling_settings
+    from custom_components.feelloo.number import FeellooPollingIntervalNumber
+    from custom_components.feelloo.switch import FeellooPollingSwitch
+
+    def ps_cats2(programmed=True, count=1):
+        return [{
+            "_id": f"cat_uid_{i + 1}", "cat_id": 7 + i,
+            "profile": {"name": f"Cat {i + 1}"},
+            "geolocation": {"petite_souris": {"programmed": programmed}},
+        } for i in range(count)]
+
+    # The owner's scenario: preference disabled + mode active -> override engaged
+    hass, entry, auth, coord = await setup_coordinator(
+        options={"polling_enabled": False}, cats=ps_cats2())
+    await coord.async_setup()
+    check("V20: override engaged with disabled preference (owner scenario)",
+          coord.petite_souris_override is True)
+
+    sw = FeellooPollingSwitch(coord, entry)
+    sw.hass = hass
+    sw._attr_entity_id = "switch.feelloo_test_polling"
+    hass.entity_registry.entries["switch.feelloo_test_polling"] = types.SimpleNamespace(
+        translation_key="polling_enabled", name=None, original_name="Automatic Polling")
+    await sw.async_added_to_hass()
+
+    check("V20: switch reads ON during the override (effective state)",
+          sw.is_on is True and get_polling_settings(entry)[0] is False,
+          "state label truthful; saved preference stays disabled")
+    check("V20: switch icon differs while overridden",
+          sw.icon == "mdi:clock-fast" and sw.icon != "mdi:autorenew")
+    check("V20: switch attributes expose saved preference AND effective state",
+          sw.extra_state_attributes == {
+              "saved_polling_enabled": False,
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_enabled": True,
+              "effective_polling_interval_minutes": 1,
+          })
+    check("V20: registry label swapped to the override variant",
+          any(eid == "switch.feelloo_test_polling"
+              and kw.get("translation_key") == "polling_enabled_override"
+              for eid, kw in hass.entity_registry.updates))
+
+    # The labels exist in both languages with full parity
+    with open(f"{REPO}/custom_components/feelloo/translations/en.json") as fh:
+        en = json.load(fh)
+    with open(f"{REPO}/custom_components/feelloo/translations/fr.json") as fh:
+        fr = json.load(fh)
+    check("V20: override label present in en and fr (full parity)",
+          en["entity"]["switch"]["polling_enabled_override"]["name"]
+          == "Automatic Polling (Petite Souris)"
+          and fr["entity"]["switch"]["polling_enabled_override"]["name"]
+          == "Polling automatique (Petite Souris)")
+
+    # Number: keeps showing the saved preference, exposes the effective interval
+    num = FeellooPollingIntervalNumber(coord, entry)
+    num.hass = hass
+    await num.async_added_to_hass()
+    check("V20: number keeps showing the saved preference during the override",
+          num.native_value == 5)
+    check("V20: number attribute exposes the effective interval",
+          num.extra_state_attributes == {"effective_polling_interval_minutes": 1})
+
+    # OFF during the override: command semantics unchanged, NOT a no-op
+    await sw.async_turn_off()
+    check("V20: OFF during override cancels the boost (semantics unchanged)",
+          coord.petite_souris_override is False
+          and coord.update_interval is None)
+    check("V20: the OFF command is visibly not a no-op (switch flips ON->OFF)",
+          sw.is_on is False)
+    check("V20: registry label restored after the manual cancel",
+          hass.entity_registry.entries["switch.feelloo_test_polling"].translation_key
+          == "polling_enabled"
+          and any(kw.get("translation_key") == "polling_enabled"
+                  for _, kw in hass.entity_registry.updates))
+    check("V20: switch attributes back to normal after the cancel",
+          sw.extra_state_attributes == {
+              "saved_polling_enabled": False,
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_enabled": False,
+              "effective_polling_interval_minutes": 5,
+          })
+
+    # Re-engage, then let the mode end via a fetch: everything returns to normal
+    auth.cats = ps_cats2(programmed=False)
+    await coord.async_request_refresh()          # mode ends -> latch resets
+    auth.cats = ps_cats2()
+    await coord.async_request_refresh()           # re-engage via API-state sync
+    check("V20: re-engaged override flips the switch back ON",
+          coord.petite_souris_override is True and sw.is_on is True)
+    check("V20: override icon and label return while re-engaged",
+          sw.icon == "mdi:clock-fast"
+          and hass.entity_registry.entries["switch.feelloo_test_polling"].translation_key
+          == "polling_enabled_override")
+    auth.cats = ps_cats2(programmed=False)
+    await coord.async_request_refresh()           # mode ends -> restore
+    check("V20: after restore the switch returns to normal",
+          sw.is_on is False and sw.icon == "mdi:autorenew"
+          and sw.extra_state_attributes == {
+              "saved_polling_enabled": False,
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_enabled": False,
+              "effective_polling_interval_minutes": 5,
+          }
+          and hass.entity_registry.entries["switch.feelloo_test_polling"].translation_key
+          == "polling_enabled")
+    check("V20: number returns to normal after restore",
+          num.native_value == 5
+          and num.extra_state_attributes == {"effective_polling_interval_minutes": 5})
+
+
 async def test_apply_settings_cases():
     # Case: enable/interval-change while enabled -> forced debounced refresh
     hass, entry, auth, coord = await setup_coordinator(options={})
@@ -1243,6 +1379,7 @@ async def main():
     test_resolver()
     await test_constructor()
     await test_petite_souris_override()
+    await test_override_visibility()
     await test_apply_settings_cases()
     await test_listener()
     await test_button()
