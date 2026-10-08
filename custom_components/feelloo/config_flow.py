@@ -103,15 +103,13 @@ class FeellooConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> FeellooOptionsFlowHandler:
         """Get the options flow for this handler."""
-        return FeellooOptionsFlowHandler(config_entry)
+        # Modern OptionsFlow (HA >= 2026.9) exposes a read-only `config_entry`
+        # property resolved from hass.config_entries - no need to pass it here.
+        return FeellooOptionsFlowHandler()
 
 
 class FeellooOptionsFlowHandler(OptionsFlow):
     """Handle options flow for Feelloo."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
