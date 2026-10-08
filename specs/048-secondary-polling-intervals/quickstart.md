@@ -8,7 +8,7 @@ Five new **config numbers on the Feelloo hub device** (Settings → Devices & Se
 
 | Entity | Controls | Default |
 |--------|----------|---------|
-| **Polling Interval — Activity** | today's rest/calm/action percentages and history | 15 min |
+| **Polling Interval — Activity** | today's dominant activity (sleep / calm / active) and rest/calm/action percentages with history | 15 min |
 | **Polling Interval — Activity Week** | weekly percentages | 60 min |
 | **Polling Interval — Activity Month** | monthly percentages | 360 min (6 h) |
 | **Polling Interval — Territory** | outing start/end, outing count | 15 min |
@@ -30,7 +30,7 @@ What this does to the cloud traffic (scheduled refreshes/day, single-cat arithme
 
 | Coordinator | Before | After |
 |-------------|--------|-------|
-| Main (cats) | 288 (5 min) | 288 — or **0** if you also disable it via the 047 **Automatic Polling** switch |
+| Main (cats) | 288 (5 min) | 288 — or **0** if you also disable it via the 047 **Tag auto-polling** switch |
 | Activity | 96 | 96 (default kept) |
 | Activity week | 24 | 1 |
 | Activity month | 4 | 1 |

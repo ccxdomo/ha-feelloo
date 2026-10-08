@@ -6,6 +6,7 @@
 **Owner addition (2026-10-08, approved):** the Petite Souris mode now temporarily overrides polling to 1 minute while active; implemented and verified in this same session (see §4.2 rows V15–V19 and the amended V10).
 **Owner follow-up 2 (2026-10-08, after live testing — option (b)):** the override is now VISIBLE on the polling switch (matrix V20): effective state as the switch state, override icon, saved/effective attributes, and the "(Petite Souris)" name variant via the supported entity-registry `translation_key` update. Command semantics unchanged.
 **Owner follow-up 3 (2026-10-08, after live testing):** the interval NUMBER now displays the effective interval during the override (matrix V21): 1 minute while the boost runs, back to the saved value when it ends; the saved preference stays in symmetrical attributes; the write path is unchanged and cannot corrupt the preference.
+**Owner follow-up 4 (2026-10-08, post-1.9.0 — naming option B):** the two main-coordinator controls' DISPLAY names are renamed — switch 'Automatic Polling' → **Tag auto-polling** (fr **Polling auto du tag**), number 'Polling Interval' → **Tag polling interval** (fr **Intervalle de polling du tag**); the override variant follows the new base name. Display-only: unique_ids, registry translation keys and existing installs' entity_ids untouched; the five secondary numbers keep their names. Verified by the harness rename suite (24 checks); see §10.
 
 ## 1. Environment statement (explicit)
 
@@ -116,3 +117,21 @@ No destructive or irreversible operation was performed or introduced. Local veri
 - **2026.9.0 / dev**: setter removed (read-only property, same resolution) — the merged fix's target version.
 
 Everything else in the 047 implementation uses APIs that predate 2024.1: `entry.add_update_listener`/`async_on_unload`, `async_update_entry`, `DataUpdateCoordinator` `update_interval` assignment and debounced `async_request_refresh`, `EntityCategory`, `NumberEntity` native API, `ButtonEntity`, `CoordinatorEntity`, `async_track_time_interval`, device registry `async_get_or_create`. **Verdict: pin raised `hacs.json` → `"homeassistant": "2024.12.0"`** (README Requirements updated to match). The single constraint is the merged options-flow fix, which the 047 contract requires to be preserved; no 047 mechanism requires anything newer.
+
+## 10. Owner follow-up 4 (2026-10-08, post-1.9.0): display-label rename (naming option B)
+
+The two main-coordinator controls' displayed names are renamed; every identifier is untouched. Implemented in the spec-048 Coder session as a follow-up (the repo's single harness is shared).
+
+| Entity | en old → new | fr old → new |
+|--------|--------------|--------------|
+| Switch (`{uid}_polling_enabled`) | Automatic Polling → **Tag auto-polling** | Polling automatique → **Polling auto du tag** |
+| Override variant (`polling_enabled_override`) | Automatic Polling (Petite Souris) → **Tag auto-polling (Petite Souris)** | Polling automatique (Petite Souris) → **Polling auto du tag (Petite Souris)** |
+| Number (`{uid}_polling_interval`) | Polling Interval → **Tag polling interval** | Intervalle de polling → **Intervalle de polling du tag** |
+
+- **Rationale (stated in both READMEs):** the main fetch (`/users/cats` + `/users/cats/{cat_id}`) carries the tag's GPS position, LoRa signal strength, battery/charging state and presence — not GPS alone; 'Tag' covers that accurately without the wordiness of 'cat data'.
+- **Display-only (hard invariant):** unique_ids (`{uid}_polling_enabled`, `{uid}_polling_interval`, `{uid}_last_update`), the registry translation keys (`polling_enabled` / `polling_enabled_override` / `polling_interval` — the override-visibility swap still targets the same two keys) and existing installs' entity_ids are untouched — the registry preserves identity and history; only fresh installs generate entity_ids from the new names (e.g. `switch.feelloo_tag_auto_polling`). The options-flow field labels ("Enable automatic polling", "Polling interval (minutes)") are not entity names and stay unchanged.
+- **Override-variant coherence:** the variant resolves as the new base name + the marker in both languages (harness asserts `variant == base + " (Petite Souris)"` for en and fr); the V20 expectation was updated to the follow-up-4 strings (the behaviour it verifies — variant present with full parity — is unchanged).
+- **Five secondary numbers (spec 048):** keep their coordinator-scoped 'Polling Interval — …' names — each is explicitly tied to one coordinator and not ambiguous (harness asserts their labels are byte-identical to the 1.9.0 strings in both languages).
+- **Docs:** both READMEs updated everywhere the two controls are named (settings table, a Naming note stating the rationale, override bullets, entity lists, device-registry sentence); both quickstarts updated; the 047 contract (header note, §8.2, §8.3 incl. the added variant row, §4.2 variant text, V3/V20) and data-model (entity table, entity-id examples) amended with dated notes.
+
+**Verification:** `test_rename_labels` (24 checks: labels resolve in both languages for both entities and the variant; en/fr key parity; registry translation keys unchanged; unique_ids byte-identical to the 047 §8.2 values; five secondary labels unchanged; options-flow field labels unchanged) added to the shared harness. True count: **403/403, exit 0** (379 pre-existing + 24 rename checks); py_compile and JSON validation clean. The 137-check figure quoted in §2 remains the historical 1.8.0-session statement.

@@ -149,10 +149,10 @@
         "name": "Petite Souris"
       },
       "polling_enabled": {
-        "name": "Polling automatique"
+        "name": "Polling auto du tag"
       },
       "polling_enabled_override": {
-        "name": "Polling automatique (Petite Souris)"
+        "name": "Polling auto du tag (Petite Souris)"
       }
     },
     "number": {
@@ -160,7 +160,7 @@
         "name": "Durée Petite Souris"
       },
       "polling_interval": {
-        "name": "Intervalle de polling"
+        "name": "Intervalle de polling du tag"
       },
       "polling_interval_activity": {
         "name": "Intervalle de polling — Activité"

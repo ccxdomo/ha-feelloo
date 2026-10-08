@@ -69,10 +69,10 @@ Quand l'interrupteur **Petite Souris** est activé pour un chat :
 - Cela concerne la position GPS, la force du signal, la batterie et toutes les entités du coordinateur principal
 - Quand le mode se termine (interrupteur sur OFF ou expiration côté serveur), **vos réglages de polling sont restaurés à l'identique** — y compris le retour à « désactivé » si c'est ce que vous aviez configuré
 - Plusieurs chats partagent un seul override : il s'active avec le premier chat et se termine avec le dernier ; prolonger la durée ou l'activer deux fois ne change rien (idempotent)
-- **Si vous modifiez un réglage de polling manuellement pendant que le mode est actif, votre action manuelle l'emporte** — le boost temporaire à 1 minute s'arrête et ne se réengagera pas tant que le mode n'aura pas été désactivé puis réactivé. Tant que le polling reste activé, le mode continue de recevoir des mises à jour à 1 minute via la minuterie de polling rapide historique. Régler le **Polling Interval** pendant le boost enregistre cette valeur comme préférence et arrête le boost
+- **Si vous modifiez un réglage de polling manuellement pendant que le mode est actif, votre action manuelle l'emporte** — le boost temporaire à 1 minute s'arrête et ne se réengagera pas tant que le mode n'aura pas été désactivé puis réactivé. Tant que le polling reste activé, le mode continue de recevoir des mises à jour à 1 minute via la minuterie de polling rapide historique. Régler l'**Intervalle de polling du tag** pendant le boost enregistre cette valeur comme préférence et arrête le boost
 - Votre préférence configurée n'est jamais modifiée par le mode : elle réside dans les options de l'entrée de configuration, et l'override temporaire est transitoire (en mémoire ; après un redémarrage de Home Assistant, il est reconstruit depuis l'état du mode côté cloud Feelloo)
 
-**Vous voyez l'intervalle passer à 1 minute tout seul ?** C'est l'override à l'œuvre : tant qu'un chat a la Petite Souris active, le poller principal tourne à 1 minute, et vos réglages enregistrés reprennent automatiquement à la fin du mode (interrupteur sur OFF ou expiration). Pour le confirmer, consultez l'attribut `petite_souris_override` du capteur **Last Update** (`true` pendant le boost) ou la ligne de journal `Petite Souris active: temporary 1-minute polling override engaged`. L'interrupteur **Automatic Polling** se met visiblement sur ON pendant toute la durée du boost — étiqueté *(Petite Souris)* avec une icône d'horloge rapide — et revient à votre état enregistré quand le mode se termine ; le nombre **Polling Interval** affiche la cadence effective de 1 minute pendant le boost et revient automatiquement à votre valeur enregistrée quand le mode se termine (votre préférence reste visible dans son attribut `saved_polling_interval_minutes`).
+**Vous voyez l'intervalle passer à 1 minute tout seul ?** C'est l'override à l'œuvre : tant qu'un chat a la Petite Souris active, le poller principal tourne à 1 minute, et vos réglages enregistrés reprennent automatiquement à la fin du mode (interrupteur sur OFF ou expiration). Pour le confirmer, consultez l'attribut `petite_souris_override` du capteur **Last Update** (`true` pendant le boost) ou la ligne de journal `Petite Souris active: temporary 1-minute polling override engaged`. L'interrupteur **Polling auto du tag** se met visiblement sur ON pendant toute la durée du boost — étiqueté *Polling auto du tag (Petite Souris)* avec une icône d'horloge rapide — et revient à votre état enregistré quand le mode se termine ; le nombre **Intervalle de polling du tag** affiche la cadence effective de 1 minute pendant le boost et revient automatiquement à votre valeur enregistrée quand le mode se termine (votre préférence reste visible dans son attribut `saved_polling_interval_minutes`).
 
 ## Contrôle du polling
 
@@ -82,8 +82,8 @@ Vous contrôlez la fréquence (et l'activation) du polling automatique vers le c
 
 | Réglage | Emplacement | Plage / Défaut |
 |---------|-------|------------------|
-| **Automatic Polling** (interrupteur, config) | Appareil Feelloo | ON (défaut) / OFF |
-| **Polling Interval** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **5** |
+| **Polling auto du tag** (interrupteur, config) | Appareil Feelloo | ON (défaut) / OFF |
+| **Intervalle de polling du tag** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **5** |
 | **Polling Interval — Activity** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **15** |
 | **Polling Interval — Activity Week** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **60** |
 | **Polling Interval — Activity Month** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **360** |
@@ -92,13 +92,15 @@ Vous contrôlez la fréquence (et l'activation) du polling automatique vers le c
 
 Tous les réglages sont aussi modifiables dans le flux d'options, et tous sont persistés dans les options de l'entrée de configuration (ils survivent aux redémarrages). Les changements s'appliquent à chaud — aucun redémarrage de Home Assistant ni rechargement de l'intégration n'est nécessaire.
 
+**Nommage** : les deux contrôles du coordinateur principal portent les libellés **Polling auto du tag** (interrupteur) et **Intervalle de polling du tag** (nombre) car la récupération principale (`/users/cats` + `/users/cats/{cat_id}`) transporte la position GPS, la force du signal LoRa, l'état de batterie/charge et la présence du collier — pas seulement le GPS. Les cinq nombres **Polling Interval — …** conservent leurs noms scopés par coordinateur (Activity, Activity Week, Activity Month, Territory, Session) : chacun est explicitement rattaché à un coordinateur secondaire, donc sans ambiguïté.
+
 ### Ce que signifie « polling désactivé »
 
 - Le **coordinateur principal** (`/users/cats`) cesse de récupérer des données de lui-même. Après au plus une récupération déjà planifiée, plus aucun appel cloud automatique n'est effectué pour les données des chats.
 - **Les cinq coordinateurs secondaires continuent de tourner à leurs intervalles configurés** (activité du jour, hebdomadaire et mensuelle, territoire, session — chacun configurable de 1 à 1440 min, défauts 15 min / 1 h / 6 h / 15 min / 30 min ; voir [Intervalles de polling secondaires](#intervalles-de-polling-secondaires)). Ils lisent la dernière liste de chats connue, donc ils continuent leurs récupérations même avec le poller principal désactivé.
 - **Le rafraîchissement du jeton (maintenance de l'authentification) continue de tourner** (~50 min) afin que les rafraîchissements manuels et les commandes Petite Souris fonctionnent toujours.
-- **Petite Souris + polling désactivé** : activer la Petite Souris alors que le polling automatique est désactivé **réactive temporairement le polling à 1 minute** pour que le mode suive réellement votre chat (une ligne de journal le signale). Quand le mode se termine, le polling est désactivé à nouveau automatiquement — votre préférence est mémorisée dans les options de l'entrée et n'est jamais modifiée. Si vous changez manuellement un réglage de polling pendant que le mode est actif, votre action manuelle l'emporte (le boost temporaire s'arrête) — mettre l'interrupteur **Automatic Polling** sur OFF pendant le boost l'arrête immédiatement et l'interrupteur bascule visiblement sur OFF.
-- **L'override est visible sur l'interrupteur de polling** : pendant le boost, l'interrupteur **Automatic Polling** indique **ON** (le polling tourne réellement, à 1 minute), affiche une icône d'horloge rapide, et est étiqueté *Automatic Polling (Petite Souris)* — un contrôle qui semblerait désactivé alors que les données circulent ne peut plus se produire. Ses attributs exposent à la fois votre préférence enregistrée (`saved_polling_enabled`, `saved_polling_interval_minutes`) et ce qui est actuellement en vigueur (`effective_polling_enabled`, `effective_polling_interval_minutes`). Quand le mode se termine, l'interrupteur revient automatiquement à votre état enregistré. Le nombre **Polling Interval** affiche lui aussi la cadence effective — 1 minute pendant le boost, retour à votre valeur enregistrée à la fin — avec la préférence enregistrée visible dans `saved_polling_interval_minutes` et l'override signalé par `petite_souris_override`.
+- **Petite Souris + polling désactivé** : activer la Petite Souris alors que le polling automatique est désactivé **réactive temporairement le polling à 1 minute** pour que le mode suive réellement votre chat (une ligne de journal le signale). Quand le mode se termine, le polling est désactivé à nouveau automatiquement — votre préférence est mémorisée dans les options de l'entrée et n'est jamais modifiée. Si vous changez manuellement un réglage de polling pendant que le mode est actif, votre action manuelle l'emporte (le boost temporaire s'arrête) — mettre l'interrupteur **Polling auto du tag** sur OFF pendant le boost l'arrête immédiatement et l'interrupteur bascule visiblement sur OFF.
+- **L'override est visible sur l'interrupteur de polling** : pendant le boost, l'interrupteur **Polling auto du tag** indique **ON** (le polling tourne réellement, à 1 minute), affiche une icône d'horloge rapide, et est étiqueté *Polling auto du tag (Petite Souris)* — un contrôle qui semblerait désactivé alors que les données circulent ne peut plus se produire. Ses attributs exposent à la fois votre préférence enregistrée (`saved_polling_enabled`, `saved_polling_interval_minutes`) et ce qui est actuellement en vigueur (`effective_polling_enabled`, `effective_polling_interval_minutes`). Quand le mode se termine, l'interrupteur revient automatiquement à votre état enregistré. Le nombre **Intervalle de polling du tag** affiche lui aussi la cadence effective — 1 minute pendant le boost, retour à votre valeur enregistrée à la fin — avec la préférence enregistrée visible dans `saved_polling_interval_minutes` et l'override signalé par `petite_souris_override`.
 - **Le capteur Last Update reste la source de vérité pour l'override** : pendant le boost, ses attributs `polling_enabled` / `polling_interval_minutes` affichent la cadence temporaire de 1 minute et `petite_souris_override` vaut `true`.
 - **Les entités conservent leurs dernières valeurs connues** : sans rafraîchissement, il n'y a pas d'échec, donc rien ne passe en « indisponible » simplement parce que le polling est désactivé. Les vrais échecs (réseau coupé, identifiants invalides) remontent exactement comme avant.
 - Le capteur de diagnostic **Last Update** se fige à la dernière récupération réussie, de sorte que l'âge des données reste toujours visible ; ses attributs affichent les réglages de polling en cours.
@@ -110,7 +112,7 @@ Chacun des cinq coordinateurs secondaires a son propre intervalle de polling, co
 
 | Réglage | Contrôle | Défaut |
 |---------|----------|---------|
-| **Polling Interval — Activity** | pourcentages repos/calme/action du jour et historique | 15 min |
+| **Polling Interval — Activity** | activité dominante du jour (sommeil / calme / actif) et pourcentages repos/calme/action avec historique | 15 min |
 | **Polling Interval — Activity Week** | pourcentages hebdomadaires | 60 min |
 | **Polling Interval — Activity Month** | pourcentages mensuels | 360 min (6 h) |
 | **Polling Interval — Territory** | début/fin de la dernière sortie, nombre de sorties | 15 min |
@@ -247,11 +249,11 @@ Remplacez `{nom_du_chat}` par le nom de votre chat en minuscules, les espaces re
   - Quand activé : l'intervalle de polling passe à **1 minute** pour un GPS et un signal en temps réel (sauf si le polling automatique est désactivé)
   - Quand désactivé : retour au polling normal
   - Chaque chat a sa propre minuterie indépendante
-- **Automatic Polling** (config) — sur l'appareil **Feelloo** ; ON = le poller principal tourne automatiquement (défaut), OFF = aucun polling automatique (voir [Contrôle du polling](#contrôle-du-polling)). Tant qu'un override Petite Souris est actif, l'interrupteur indique ON (le polling tourne à 1 minute) avec un libellé *(Petite Souris)* et une icône d'horloge rapide ; ses attributs exposent votre préférence enregistrée et l'état effectif
+- **Polling auto du tag** (config) — sur l'appareil **Feelloo** ; ON = le poller principal tourne automatiquement (défaut), OFF = aucun polling automatique (voir [Contrôle du polling](#contrôle-du-polling)). Tant qu'un override Petite Souris est actif, l'interrupteur indique ON (le polling tourne à 1 minute) avec un libellé *Polling auto du tag (Petite Souris)* et une icône d'horloge rapide ; ses attributs exposent votre préférence enregistrée et l'état effectif
 
 ### Nombres
 - **Petite Souris Duration** — durée en heures utilisée quand la Petite Souris est activée
-- **Polling Interval** (config) — sur l'appareil **Feelloo** ; cadence du poller principal en minutes (1 à 1440, défaut 5). Tant qu'un override Petite Souris est actif, la valeur affichée est la cadence effective de 1 minute (`saved_polling_interval_minutes` garde votre valeur enregistrée visible, `petite_souris_override` signale l'override) ; à la fin du mode, le nombre revient automatiquement à votre valeur enregistrée
+- **Intervalle de polling du tag** (config) — sur l'appareil **Feelloo** ; cadence du poller principal en minutes (1 à 1440, défaut 5). Tant qu'un override Petite Souris est actif, la valeur affichée est la cadence effective de 1 minute (`saved_polling_interval_minutes` garde votre valeur enregistrée visible, `petite_souris_override` signale l'override) ; à la fin du mode, le nombre revient automatiquement à votre valeur enregistrée
 - **Polling Interval — Activity** (config) — sur l'appareil **Feelloo** ; cadence du coordinateur d'activité du jour en minutes (1 à 1440, défaut 15)
 - **Polling Interval — Activity Week** (config) — cadence du coordinateur d'activité hebdomadaire en minutes (1 à 1440, défaut 60)
 - **Polling Interval — Activity Month** (config) — cadence du coordinateur d'activité mensuelle en minutes (1 à 1440, défaut 360)
@@ -272,7 +274,7 @@ Chaque chat est enregistré comme appareil avec :
 - Fabricant : Feelloo
 - Modèle : Cat Tracker
 
-Chaque compte configuré reçoit également un appareil hub **Feelloo** (modèle : Account) hébergeant les entités du compte : **Automatic Polling**, **Polling Interval**, les cinq nombres **Polling Interval — …**, **Refresh Data** et **Last Update**.
+Chaque compte configuré reçoit également un appareil hub **Feelloo** (modèle : Account) hébergeant les entités du compte : **Polling auto du tag**, **Intervalle de polling du tag**, les cinq nombres **Polling Interval — …**, **Refresh Data** et **Last Update**.
 
 ## Prérequis
 

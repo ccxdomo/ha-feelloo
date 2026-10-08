@@ -67,10 +67,10 @@ When the **Petite Souris** switch is turned ON for a cat:
 - This affects GPS location, signal strength, battery, and all main coordinator entities
 - When the mode ends (switch OFF or server-side expiry), **your polling settings are restored exactly** — including back to "disabled" if that is what you had configured
 - Multiple cats share one override: it engages when the first cat activates and ends when the last one deactivates; extending the duration or activating it twice changes nothing (idempotent)
-- **If you change a polling setting manually while the mode is active, your manual action wins** — the temporary 1-minute boost stops and will not re-engage until the mode is deactivated and activated again. While polling stays enabled, the mode still gets 1-minute updates through the legacy fast-polling timer. Setting the **Polling Interval** during the boost saves that value as your preference and stops the boost
+- **If you change a polling setting manually while the mode is active, your manual action wins** — the temporary 1-minute boost stops and will not re-engage until the mode is deactivated and activated again. While polling stays enabled, the mode still gets 1-minute updates through the legacy fast-polling timer. Setting the **Tag polling interval** during the boost saves that value as your preference and stops the boost
 - Your configured preference is never modified by the mode: it lives in the config entry options, and the temporary override is transient (in-memory; after a Home Assistant restart it is reconstructed from the Feelloo cloud's mode state)
 
-**Seeing the polling interval change to 1 minute on its own?** That is the override at work: while any cat has Petite Souris active, the main poller runs at 1 minute, and your saved settings resume automatically when the mode ends (switch OFF or expiry). To confirm, check the **Last Update** sensor's `petite_souris_override` attribute (`true` during the boost) or the info log line `Petite Souris active: temporary 1-minute polling override engaged`. The **Automatic Polling** switch visibly turns itself ON for the duration of the boost — labeled *(Petite Souris)* with a fast-clock icon — and flips back to your saved state when the mode ends; the **Polling Interval** number shows the effective 1-minute cadence while the boost runs and returns to your saved value when the mode ends (your preference stays visible in its `saved_polling_interval_minutes` attribute).
+**Seeing the polling interval change to 1 minute on its own?** That is the override at work: while any cat has Petite Souris active, the main poller runs at 1 minute, and your saved settings resume automatically when the mode ends (switch OFF or expiry). To confirm, check the **Last Update** sensor's `petite_souris_override` attribute (`true` during the boost) or the info log line `Petite Souris active: temporary 1-minute polling override engaged`. The **Tag auto-polling** switch visibly turns itself ON for the duration of the boost — labeled *Tag auto-polling (Petite Souris)* with a fast-clock icon — and flips back to your saved state when the mode ends; the **Tag polling interval** number shows the effective 1-minute cadence while the boost runs and returns to your saved value when the mode ends (your preference stays visible in its `saved_polling_interval_minutes` attribute).
 
 ## Polling Control
 
@@ -80,8 +80,8 @@ You control how often (and whether) the Feelloo cloud is polled automatically. A
 
 | Setting | Where | Range / Default |
 |---------|-------|------------------|
-| **Automatic Polling** (switch, config) | Feelloo device | ON (default) / OFF |
-| **Polling Interval** (number, config) | Feelloo device | 1–1440 minutes, default **5** |
+| **Tag auto-polling** (switch, config) | Feelloo device | ON (default) / OFF |
+| **Tag polling interval** (number, config) | Feelloo device | 1–1440 minutes, default **5** |
 | **Polling Interval — Activity** (number, config) | Feelloo device | 1–1440 minutes, default **15** |
 | **Polling Interval — Activity Week** (number, config) | Feelloo device | 1–1440 minutes, default **60** |
 | **Polling Interval — Activity Month** (number, config) | Feelloo device | 1–1440 minutes, default **360** |
@@ -90,13 +90,15 @@ You control how often (and whether) the Feelloo cloud is polled automatically. A
 
 All settings can also be edited in the options flow, and all are persisted in the config entry options (they survive restarts). Changes apply live — no Home Assistant restart and no integration reload is needed.
 
+**Naming**: the two main-coordinator controls are labeled **Tag auto-polling** (switch) and **Tag polling interval** (number) because the main fetch (`/users/cats` + `/users/cats/{cat_id}`) carries the tag's GPS position, LoRa signal strength, battery/charging state and presence — not GPS alone. The five **Polling Interval — …** numbers keep their coordinator-scoped names (Activity, Activity Week, Activity Month, Territory, Session): each is explicitly tied to one secondary coordinator, so they are not ambiguous.
+
 ### What "polling disabled" means
 
 - The **main coordinator** (`/users/cats`) stops fetching on its own. After at most one already-scheduled fetch, zero automatic cloud calls are made for cat data.
 - **The five secondary coordinators keep polling at their configured intervals** (daily, weekly and monthly activity, territory, session — each configurable 1–1440 min, defaults 15 m / 1 h / 6 h / 15 m / 30 m; see [Secondary polling intervals](#secondary-polling-intervals)). They read the last-known cat list, so they keep fetching even with the main poller disabled.
 - **Token refresh (auth housekeeping) keeps running** (~50 min) so manual refreshes and Petite Souris commands still work.
-- **Petite Souris + polling disabled**: turning Petite Souris ON while automatic polling is disabled **temporarily re-enables polling at 1 minute** so the mode actually tracks your cat (a log line notes it). When the mode ends, polling is disabled again automatically — your preference is remembered in the entry options and never modified. If you manually change any polling setting while the mode is active, your manual action wins (the temporary boost stops) — turning the **Automatic Polling** switch OFF during the boost immediately stops it and the switch visibly flips to OFF.
-- **The override is visible on the polling switch**: while the boost runs, the **Automatic Polling** switch reads **ON** (polling IS running, at 1 minute), shows a fast-clock icon, and is labeled *Automatic Polling (Petite Souris)* — a control that looks disabled while data flows can no longer happen. Its attributes expose both your saved preference (`saved_polling_enabled`, `saved_polling_interval_minutes`) and what is currently in force (`effective_polling_enabled`, `effective_polling_interval_minutes`). When the mode ends, the switch returns to your saved state automatically. The **Polling Interval** number shows the effective interval too — 1 minute during the boost, back to your saved value when it ends — with the saved preference visible in `saved_polling_interval_minutes` and the override flagged by `petite_souris_override`.
+- **Petite Souris + polling disabled**: turning Petite Souris ON while automatic polling is disabled **temporarily re-enables polling at 1 minute** so the mode actually tracks your cat (a log line notes it). When the mode ends, polling is disabled again automatically — your preference is remembered in the entry options and never modified. If you manually change any polling setting while the mode is active, your manual action wins (the temporary boost stops) — turning the **Tag auto-polling** switch OFF during the boost immediately stops it and the switch visibly flips to OFF.
+- **The override is visible on the polling switch**: while the boost runs, the **Tag auto-polling** switch reads **ON** (polling IS running, at 1 minute), shows a fast-clock icon, and is labeled *Tag auto-polling (Petite Souris)* — a control that looks disabled while data flows can no longer happen. Its attributes expose both your saved preference (`saved_polling_enabled`, `saved_polling_interval_minutes`) and what is currently in force (`effective_polling_enabled`, `effective_polling_interval_minutes`). When the mode ends, the switch returns to your saved state automatically. The **Tag polling interval** number shows the effective interval too — 1 minute during the boost, back to your saved value when it ends — with the saved preference visible in `saved_polling_interval_minutes` and the override flagged by `petite_souris_override`.
 - **The Last Update sensor stays the source of truth for the override**: while the boost runs, its `polling_enabled` / `polling_interval_minutes` attributes show the temporary 1-minute cadence and `petite_souris_override` is `true`.
 - **Entities keep their last known values**: with no refreshes there are no failures, so nothing goes "unavailable" just because polling is off. Genuine failures (network down, bad credentials) still surface exactly as before.
 - The **Last Update** diagnostic sensor freezes at the last successful fetch, so data age is always visible; its attributes show the current polling settings.
@@ -108,7 +110,7 @@ Each of the five secondary coordinators has its own polling interval, configurab
 
 | Setting | Controls | Default |
 |---------|----------|---------|
-| **Polling Interval — Activity** | today's rest/calm/action percentages and history | 15 min |
+| **Polling Interval — Activity** | today's dominant activity (sleep / calm / active) and rest/calm/action percentages with history | 15 min |
 | **Polling Interval — Activity Week** | weekly percentages | 60 min |
 | **Polling Interval — Activity Month** | monthly percentages | 360 min (6 h) |
 | **Polling Interval — Territory** | last outing start/end, outing count | 15 min |
@@ -245,11 +247,11 @@ Replace `{cat_name}` with your cat's name slug (lowercase, spaces as underscores
   - When ON: polling interval drops to **1 minute** for real-time GPS and signal strength (unless automatic polling is disabled)
   - When OFF: returns to normal polling
   - Each cat has its own independent timer
-- **Automatic Polling** (config) — on the **Feelloo** device; ON = the main poller runs automatically (default), OFF = no automatic polling (see [Polling Control](#polling-control)). While a Petite Souris override is active the switch reads ON (polling runs at 1 minute) with a *(Petite Souris)* label and a fast-clock icon; its attributes expose your saved preference and the effective state
+- **Tag auto-polling** (config) — on the **Feelloo** device; ON = the main poller runs automatically (default), OFF = no automatic polling (see [Polling Control](#polling-control)). While a Petite Souris override is active the switch reads ON (polling runs at 1 minute) with a *Tag auto-polling (Petite Souris)* label and a fast-clock icon; its attributes expose your saved preference and the effective state
 
 ### Numbers
 - **Petite Souris Duration** — duration in hours used when Petite Souris is enabled
-- **Polling Interval** (config) — on the **Feelloo** device; main poller cadence in minutes (1–1440, default 5). While a Petite Souris override is active, the value shown is the effective 1-minute cadence (`saved_polling_interval_minutes` keeps your saved value visible, `petite_souris_override` flags the override); when the mode ends the number returns to your saved value automatically
+- **Tag polling interval** (config) — on the **Feelloo** device; main poller cadence in minutes (1–1440, default 5). While a Petite Souris override is active, the value shown is the effective 1-minute cadence (`saved_polling_interval_minutes` keeps your saved value visible, `petite_souris_override` flags the override); when the mode ends the number returns to your saved value automatically
 - **Polling Interval — Activity** (config) — on the **Feelloo** device; daily-activity coordinator cadence in minutes (1–1440, default 15)
 - **Polling Interval — Activity Week** (config) — weekly-activity coordinator cadence in minutes (1–1440, default 60)
 - **Polling Interval — Activity Month** (config) — monthly-activity coordinator cadence in minutes (1–1440, default 360)
@@ -270,7 +272,7 @@ Each cat is registered as a device with:
 - Manufacturer: Feelloo
 - Model: Cat Tracker
 
-Each configured account also gets a **Feelloo** hub device (model: Account) hosting the per-account entities: **Automatic Polling**, **Polling Interval**, the five **Polling Interval — …** numbers, **Refresh Data**, and **Last Update**.
+Each configured account also gets a **Feelloo** hub device (model: Account) hosting the per-account entities: **Tag auto-polling**, **Tag polling interval**, the five **Polling Interval — …** numbers, **Refresh Data**, and **Last Update**.
 
 ## Requirements
 

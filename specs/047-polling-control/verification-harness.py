@@ -38,6 +38,16 @@ one that pinned the exact 4-field options schema were extended to the
 048-mandated surface (contract C11 adds one attribute; C12 adds five flow
 fields) — the 047 behaviour they verify is unchanged.
 
+Owner follow-up 4 (2026-10-08, post-1.9.0 — naming option B): the two
+main-coordinator controls' display labels are renamed (switch -> 'Tag
+auto-polling' / 'Polling auto du tag'; number -> 'Tag polling interval' /
+'Intervalle de polling du tag'; the override variant follows the new base
+name). test_rename_labels asserts the labels resolve in both languages,
+the registry translation_key mechanism is untouched, NO unique_id changed,
+the five secondary labels are unchanged, and the options-flow field labels
+are unchanged (entity names only). The V20 override-label expectation was
+updated to the follow-up-4 strings.
+
 Run: python3 specs/047-polling-control/verification-harness.py
 """
 
@@ -979,11 +989,11 @@ async def test_override_visibility():
         en = json.load(fh)
     with open(f"{REPO}/custom_components/feelloo/translations/fr.json") as fh:
         fr = json.load(fh)
-    check("V20: override label present in en and fr (full parity)",
+    check("V20: override label present in en and fr (full parity, follow-up-4 names)",
           en["entity"]["switch"]["polling_enabled_override"]["name"]
-          == "Automatic Polling (Petite Souris)"
+          == "Tag auto-polling (Petite Souris)"
           and fr["entity"]["switch"]["polling_enabled_override"]["name"]
-          == "Polling automatique (Petite Souris)")
+          == "Polling auto du tag (Petite Souris)")
 
     # Number: displays the effective interval (owner follow-up 3), preference in attributes
     num = FeellooPollingIntervalNumber(coord, entry)
@@ -2186,6 +2196,115 @@ async def test_h8_047_regression_secondary_isolation():
           entry.options == slow)
 
 
+async def test_rename_labels():
+    """Owner follow-up 4 (2026-10-08, post-1.9.0, naming option B): the two
+    main-coordinator controls' DISPLAY labels are renamed. Asserts (a) the
+    new labels resolve for both entities in both languages, (b) the
+    override-variant label resolves as the new base name + the marker and
+    the registry translation_key mechanism is untouched, (c) NO unique_id
+    changed, the five secondary labels are unchanged, and the options-flow
+    field labels are unchanged (entity names only)."""
+    with open(f"{REPO}/custom_components/feelloo/translations/en.json") as fh:
+        en = json.load(fh)
+    with open(f"{REPO}/custom_components/feelloo/translations/fr.json") as fh:
+        fr = json.load(fh)
+
+    # (a) the new labels resolve, both entities, both languages
+    check("FU4: switch display label en == 'Tag auto-polling'",
+          en["entity"]["switch"]["polling_enabled"]["name"] == "Tag auto-polling")
+    check("FU4: switch display label fr == 'Polling auto du tag'",
+          fr["entity"]["switch"]["polling_enabled"]["name"] == "Polling auto du tag")
+    check("FU4: number display label en == 'Tag polling interval'",
+          en["entity"]["number"]["polling_interval"]["name"] == "Tag polling interval")
+    check("FU4: number display label fr == 'Intervalle de polling du tag'",
+          fr["entity"]["number"]["polling_interval"]["name"]
+          == "Intervalle de polling du tag")
+
+    # (b) override variant: resolves in both languages AND reads as the new
+    # base name plus the marker (label coherence); the registry mechanism's
+    # translation keys are unchanged (the swap targets the same two keys)
+    check("FU4: override variant en == 'Tag auto-polling (Petite Souris)'",
+          en["entity"]["switch"]["polling_enabled_override"]["name"]
+          == "Tag auto-polling (Petite Souris)")
+    check("FU4: override variant fr == 'Polling auto du tag (Petite Souris)'",
+          fr["entity"]["switch"]["polling_enabled_override"]["name"]
+          == "Polling auto du tag (Petite Souris)")
+    for lang, data in (("en", en), ("fr", fr)):
+        base = data["entity"]["switch"]["polling_enabled"]["name"]
+        variant = data["entity"]["switch"]["polling_enabled_override"]["name"]
+        check(f"FU4: {lang} variant reads as the new base name plus the marker",
+              variant == f"{base} (Petite Souris)")
+    check("FU4: en/fr key parity for switch and number translation blocks",
+          set(en["entity"]["switch"]) == set(fr["entity"]["switch"])
+          and set(en["entity"]["number"]) == set(fr["entity"]["number"]))
+
+    from custom_components.feelloo.switch import FeellooPollingSwitch
+    from custom_components.feelloo.number import (
+        FeellooPollingIntervalNumber,
+        FeellooSecondaryPollingIntervalNumber,
+    )
+    from custom_components.feelloo.sensor import FeellooLastUpdateSensor
+
+    hass, entry, auth, coord = await setup_coordinator(options={})
+    sw = FeellooPollingSwitch(coord, entry)
+    num = FeellooPollingIntervalNumber(coord, entry)
+    sens = FeellooLastUpdateSensor(coord, entry)
+    uid = entry.unique_id
+
+    check("FU4: registry translation keys unchanged (mechanism untouched)",
+          sw._attr_translation_key == "polling_enabled"
+          and sw._OVERRIDE_TRANSLATION_KEY == "polling_enabled_override"
+          and num._attr_translation_key == "polling_interval")
+
+    # (c) NO unique_id changed (byte-identical to the 047 §8.2 values)
+    check("FU4: switch unique_id unchanged == {uid}_polling_enabled",
+          sw.unique_id == f"{uid}_polling_enabled")
+    check("FU4: number unique_id unchanged == {uid}_polling_interval",
+          num.unique_id == f"{uid}_polling_interval")
+    check("FU4: Last Update unique_id unchanged == {uid}_last_update",
+          sens.unique_id == f"{uid}_last_update")
+
+    # The five secondary numbers: unique_ids AND labels unchanged
+    # (coordinator-scoped names are unambiguous — explicitly not renamed).
+    hass2, entry2, auth2, main2, coords2 = await setup_secondaries(options={})
+    uid2 = entry2.unique_id
+    sec_names_en = {
+        "activity": "Polling Interval — Activity",
+        "activity_week": "Polling Interval — Activity Week",
+        "activity_month": "Polling Interval — Activity Month",
+        "territory": "Polling Interval — Territory",
+        "session": "Polling Interval — Session",
+    }
+    sec_names_fr = {
+        "activity": "Intervalle de polling — Activité",
+        "activity_week": "Intervalle de polling — Activité hebdo",
+        "activity_month": "Intervalle de polling — Activité mensuelle",
+        "territory": "Intervalle de polling — Territoire",
+        "session": "Intervalle de polling — Session",
+    }
+    for name in SEC_KEYS:
+        num_x = FeellooSecondaryPollingIntervalNumber(coords2[name], entry2, name)
+        check(f"FU4: secondary {name} unique_id unchanged",
+              num_x.unique_id == f"{uid2}_polling_interval_{name}")
+        check(f"FU4: secondary {name} label unchanged (en + fr)",
+              en["entity"]["number"][f"polling_interval_{name}"]["name"]
+              == sec_names_en[name]
+              and fr["entity"]["number"][f"polling_interval_{name}"]["name"]
+              == sec_names_fr[name])
+
+    # Entity-names-only discipline: the options-flow field labels are not
+    # entity names and stay untouched.
+    check("FU4: options-flow field labels unchanged (entity names only)",
+          en["options"]["step"]["init"]["data"]["polling_enabled"]
+          == "Enable automatic polling"
+          and en["options"]["step"]["init"]["data"]["polling_interval"]
+          == "Polling interval (minutes)"
+          and fr["options"]["step"]["init"]["data"]["polling_enabled"]
+          == "Activer le polling automatique"
+          and fr["options"]["step"]["init"]["data"]["polling_interval"]
+          == "Intervalle de polling (minutes)")
+
+
 async def main():
     _install_stubs()
 
@@ -2221,6 +2340,9 @@ async def main():
     await test_h6_entity_surface()
     await test_h7_no_sensor_removed()
     await test_h8_047_regression_secondary_isolation()
+
+    # Owner follow-up 4: display-label rename (naming option B)
+    await test_rename_labels()
 
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n=== {len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed ===")
