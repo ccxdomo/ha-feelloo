@@ -6,6 +6,7 @@ import asyncio
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -13,7 +14,7 @@ from homeassistant.helpers.entity_registry import async_get as async_get_entity_
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DOMAIN
+from .const import CONF_POLLING_ENABLED, DOMAIN, get_polling_settings
 from .coordinator import FeellooMainCoordinator
 
 
@@ -24,7 +25,8 @@ async def async_setup_entry(
 ) -> None:
     """Set up Feelloo switch entities."""
     main_coordinator: FeellooMainCoordinator = hass.data[DOMAIN][entry.entry_id]["main"]
-    entities = []
+    # Per-account polling control (Spec 047), then one petite souris switch per cat.
+    entities = [FeellooPollingSwitch(main_coordinator, entry)]
     for cat in main_coordinator.cats:
         cat_uid = cat.get("_id")
         cat_id = cat.get("cat_id")
@@ -141,3 +143,66 @@ class FeellooPetiteSourisSwitch(CoordinatorEntity, SwitchEntity):
                 "cat_id": self._cat_id,
                 "enabled": False,
             })
+
+
+class FeellooPollingSwitch(SwitchEntity):
+    """Switch to enable/disable automatic polling of the main coordinator."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "polling_enabled"
+    _attr_icon = "mdi:autorenew"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: FeellooMainCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the switch."""
+        self._coordinator = coordinator
+        self._entry = entry
+        uid = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{uid}_polling_enabled"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Feelloo",
+            "manufacturer": "Feelloo",
+            "model": "Account",
+        }
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if automatic polling is enabled."""
+        return get_polling_settings(self._entry)[0]
+
+    async def async_added_to_hass(self) -> None:
+        """Register a listener so the state follows option changes made elsewhere."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._entry.add_update_listener(self._async_on_entry_update)
+        )
+
+    async def _async_on_entry_update(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Write state after options changed through another surface."""
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable automatic polling."""
+        await self._async_set_polling(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable automatic polling."""
+        await self._async_set_polling(False)
+
+    async def _async_set_polling(self, enabled: bool) -> None:
+        """Apply the change live, then persist it to the entry options."""
+        _, interval_minutes = get_polling_settings(self._entry)
+        # Apply first (contract 047 §7.2): the change takes effect even while
+        # the persist call races; persisting fires the update listener which
+        # re-applies idempotently.
+        await self._coordinator.async_apply_polling_settings(enabled, interval_minutes)
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_POLLING_ENABLED: enabled},
+        )
+        self.async_write_ha_state()

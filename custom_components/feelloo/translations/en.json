@@ -21,15 +21,18 @@
     "step": {
       "init": {
         "title": "Feelloo Options",
-        "description": "Update your Feelloo credentials.",
+        "description": "Update your Feelloo credentials or polling settings. Leave the password blank to keep your current credentials.",
         "data": {
           "email": "Email",
-          "password": "Password"
+          "password": "Password",
+          "polling_enabled": "Enable automatic polling",
+          "polling_interval": "Polling interval (minutes)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid email or password."
+      "invalid_auth": "Invalid email or password.",
+      "password_required": "Password is required when changing the email address."
     }
   },
   "entity": {
@@ -131,21 +134,33 @@
       },
       "signal_strength": {
         "name": "Signal Strength"
+      },
+      "last_update": {
+        "name": "Last Update"
       }
     },
     "switch": {
       "petite_souris": {
         "name": "Petite Souris"
+      },
+      "polling_enabled": {
+        "name": "Automatic Polling"
       }
     },
     "number": {
       "petite_souris_duration": {
         "name": "Petite Souris Duration"
+      },
+      "polling_interval": {
+        "name": "Polling Interval"
       }
     },
     "button": {
       "ring": {
         "name": "Bell"
+      },
+      "refresh_data": {
+        "name": "Refresh Data"
       }
     }
   }

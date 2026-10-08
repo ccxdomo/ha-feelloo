@@ -12,14 +12,20 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     DOMAIN,
     CONF_EMAIL,
     CONF_PASSWORD,
+    CONF_POLLING_ENABLED,
+    CONF_POLLING_INTERVAL,
+    POLLING_INTERVAL_MIN,
+    POLLING_INTERVAL_MAX,
     FIREBASE_API_KEY,
     FIREBASE_SIGNIN_URL,
+    get_polling_settings,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,28 +123,60 @@ class FeellooOptionsFlowHandler(OptionsFlow):
         """Manage the options."""
         errors: dict[str, str] = {}
 
-        if user_input is not None:
-            email = user_input[CONF_EMAIL].strip().casefold()
-            password = user_input[CONF_PASSWORD]
+        current_email = self.config_entry.data.get(CONF_EMAIL, "")
+        current_enabled, current_interval = get_polling_settings(self.config_entry)
 
-            valid, error_key = await _async_test_credentials(self.hass, email, password)
-            if valid:
-                # Update config entry data with new credentials
+        if user_input is not None:
+            new_email = user_input.get(CONF_EMAIL, current_email).strip().casefold()
+            # Blank password = keep current credentials.
+            new_password = user_input.get(CONF_PASSWORD, "")
+            credentials_changed = new_email != current_email or bool(new_password)
+            new_options = {
+                **self.config_entry.options,
+                CONF_POLLING_ENABLED: user_input.get(CONF_POLLING_ENABLED, current_enabled),
+                CONF_POLLING_INTERVAL: user_input.get(CONF_POLLING_INTERVAL, current_interval),
+            }
+
+            if credentials_changed and not new_password:
+                # Email changed without a password: credentials cannot be
+                # validated, so refuse the submission.
+                errors["base"] = "password_required"
+            elif credentials_changed:
+                valid, error_key = await _async_test_credentials(self.hass, new_email, new_password)
+                if not valid:
+                    errors["base"] = error_key or "invalid_auth"
+                else:
+                    # Update credentials and polling settings in one call.
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry,
+                        data={CONF_EMAIL: new_email, CONF_PASSWORD: new_password},
+                        options=new_options,
+                    )
+                    # create_entry data is persisted by HA as the entry options
+                    # (an empty dict would wipe them), so pass the merged options.
+                    return self.async_create_entry(title=new_email, data=new_options)
+            else:
+                # Polling-only change: no credential validation, no entry.data change.
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data={CONF_EMAIL: email, CONF_PASSWORD: password},
+                    options=new_options,
                 )
-                return self.async_create_entry(title=email, data={})
-            errors["base"] = error_key or "invalid_auth"
+                return self.async_create_entry(title=new_email, data=new_options)
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_EMAIL, default=self.config_entry.data.get(CONF_EMAIL)
+                    vol.Optional(
+                        CONF_EMAIL, default=current_email
                     ): str,
-                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(CONF_PASSWORD, default=""): str,
+                    vol.Optional(
+                        CONF_POLLING_ENABLED, default=current_enabled
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL, default=current_interval
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
                 }
             ),
             errors=errors,

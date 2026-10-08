@@ -22,7 +22,6 @@ from .const import (
     FIREBASE_SIGNIN_URL,
     FIREBASE_REFRESH_URL,
     BASE_URL,
-    CATS_UPDATE_INTERVAL,
     ACTIVITY_UPDATE_INTERVAL,
     ACTIVITY_WEEK_UPDATE_INTERVAL,
     ACTIVITY_MONTH_UPDATE_INTERVAL,
@@ -40,6 +39,8 @@ from .const import (
     ENDPOINT_RING,
     ENDPOINT_PETITE_SOURIS,
     ENDPOINT_TERRITORY_PATH,
+    PETITE_SOURIS_OVERRIDE_INTERVAL_MINUTES,
+    get_polling_settings,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -174,7 +175,7 @@ class FeellooAuthManager:
 
 
 class FeellooMainCoordinator(DataUpdateCoordinator):
-    """Coordinator for main cats data — polls /users/cats every 5 minutes."""
+    """Coordinator for main cats data — polls /users/cats (interval configurable, default 5 minutes)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
         """Initialize the coordinator."""
@@ -184,12 +185,25 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         self._cancel_fast_polling_listen = None
         self._fast_polling_active: set[int] = set()
         self._fast_polling_timer: callable | None = None
+        # Petite souris polling override (Spec 047 owner addition): transient,
+        # in-memory flags — never persisted. The user's real preference lives
+        # in entry.options, which the override never touches, so it is always
+        # the "remembered" pre-mode state and survives restarts by itself.
+        self._ps_override = False
+        self._ps_override_cancelled = False
+
+        # Polling control (Spec 047): resolve persisted settings. When polling
+        # is disabled the coordinator runs with update_interval=None, which
+        # means HA never schedules a periodic refresh (the startup first
+        # refresh and manual refreshes still work).
+        self.polling_enabled, self.polling_interval_minutes = get_polling_settings(entry)
+        self.last_successful_fetch = None
 
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_main",
-            update_interval=CATS_UPDATE_INTERVAL,
+            update_interval=timedelta(minutes=self.polling_interval_minutes) if self.polling_enabled else None,
         )
 
     async def async_setup(self) -> None:
@@ -224,6 +238,82 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         self._stop_fast_polling_timer()
         await super().async_shutdown()
 
+    async def async_apply_polling_settings(self, enabled: bool, interval_minutes: int) -> None:
+        """Apply polling settings at runtime, without a restart.
+
+        Case table (Spec 047 §5):
+        - enable, or interval change while enabled: update_interval is set to
+          the new cadence and one debounced refresh (~10 s) is requested so
+          the new cadence (and fresh data) applies immediately instead of
+          waiting out the previously scheduled timer.
+        - disable: update_interval becomes None; no refresh is forced (at
+          most one already-scheduled fetch may still run, then nothing).
+        - interval change while disabled: the value is stored and applied on
+          the next enable; update_interval stays None.
+        A manual call while the Petite Souris override is running cancels the
+        override: an explicit user action always wins over the mode's
+        temporary 1-minute boost (Spec 047 §4.2, edge case 1). The boost will
+        not re-engage until the mode is deactivated and activated again.
+        """
+        if self._fast_polling_active:
+            # Petite Souris still active: any manual polling change takes
+            # control back from the temporary boost.
+            if self._ps_override:
+                _LOGGER.info(
+                    "Manual polling change while Petite Souris is active: "
+                    "temporary 1-minute polling override cancelled"
+                )
+            self._ps_override = False
+            self._ps_override_cancelled = True
+        else:
+            self._ps_override = False
+            self._ps_override_cancelled = False
+
+        self.polling_enabled = enabled
+        self.polling_interval_minutes = interval_minutes
+        # Re-evaluate the fast polling timer under the new setting: disabling
+        # stops a running timer, enabling may restart one while petite souris
+        # is active.
+        self._sync_fast_polling_timer()
+
+        new_update_interval = timedelta(minutes=interval_minutes) if enabled else None
+        if self.update_interval == new_update_interval:
+            # Nothing observable changes — idempotent no-op.
+            return
+        self.update_interval = new_update_interval
+        if new_update_interval is not None:
+            # Enable or live cadence change: flush the pending schedule now
+            # (debounced) instead of waiting out the previous timer.
+            await self.async_request_refresh()
+
+    @property
+    def petite_souris_override(self) -> bool:
+        """Return whether the Petite Souris 1-minute polling override runs."""
+        return self._ps_override
+
+    def _set_effective_polling(self, enabled: bool, interval_minutes: int) -> None:
+        """Set the effective polling state without forcing a refresh.
+
+        Used by the Petite Souris override: its transitions always happen
+        inside a fetch (API-state sync) or right after one (the switch and
+        set_petite_souris service paths already refresh), so the
+        post-fetch rescheduling in DataUpdateCoordinator picks the new
+        interval up naturally — no re-entrant refresh is needed.
+        """
+        self.polling_enabled = enabled
+        self.polling_interval_minutes = interval_minutes
+        self.update_interval = timedelta(minutes=interval_minutes) if enabled else None
+
+    def _restore_user_polling_settings(self) -> None:
+        """Restore polling from the user's saved preference (entry.options).
+
+        Re-resolved live instead of snapshot at activation time, so changes
+        the user made to their preference while the mode was active are
+        honored (Spec 047 §4.2).
+        """
+        enabled, interval_minutes = get_polling_settings(self.entry)
+        self._set_effective_polling(enabled, interval_minutes)
+
     @callback
     def _handle_fast_polling_event(self, event) -> None:
         """Handle fast polling enable/disable events from switch."""
@@ -244,7 +334,68 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         self._sync_fast_polling_timer()
 
     def _sync_fast_polling_timer(self) -> None:
-        """Start or stop the fast polling timer based on active cats."""
+        """Re-evaluate fast polling and the Petite Souris polling override.
+
+        Called whenever the petite souris cat set changes (switch event,
+        API-state sync inside every fetch, startup restore) and whenever
+        polling settings change.
+        """
+        mode_active = bool(self._fast_polling_active)
+
+        # Petite Souris polling override (Spec 047 §4.2, owner addition):
+        # the mode needs 1-minute tracking, so while any cat has it
+        # programmed the main coordinator temporarily polls every minute
+        # regardless of the user's preference. The preference is never
+        # modified here — it lives in entry.options and is re-resolved when
+        # the mode ends, so mid-mode preference changes are honored.
+        if mode_active and not self._ps_override and not self._ps_override_cancelled:
+            self._ps_override = True
+            self._set_effective_polling(True, PETITE_SOURIS_OVERRIDE_INTERVAL_MINUTES)
+            _LOGGER.info(
+                "Petite Souris active: temporary %s-minute polling override engaged "
+                "(the saved polling preference will be restored when the mode ends)",
+                PETITE_SOURIS_OVERRIDE_INTERVAL_MINUTES,
+            )
+        elif not mode_active and self._ps_override:
+            self._ps_override = False
+            self._restore_user_polling_settings()
+            _LOGGER.info(
+                "Petite Souris ended: polling settings restored from the saved preference"
+            )
+        if not mode_active:
+            # The mode fully ended: a later activation may engage the
+            # override again.
+            self._ps_override_cancelled = False
+
+        # Fast polling side timer: redundant while the override provides the
+        # 1-minute cadence through update_interval (it would only duplicate
+        # fetches); suppressed entirely while polling is disabled.
+        if not self.polling_enabled:
+            # Fast polling IS main-coordinator automatic polling: while
+            # polling is disabled no fast-polling timer may run, even if
+            # petite souris is programmed (API commands still work; only
+            # local 1-minute tracking is suppressed).
+            if self._fast_polling_timer:
+                _LOGGER.info(
+                    "Automatic polling disabled: stopping fast polling timer"
+                )
+                self._fast_polling_timer()
+                self._fast_polling_timer = None
+            elif self._fast_polling_active:
+                _LOGGER.info(
+                    "Automatic polling disabled: fast polling suppressed for %s cats",
+                    len(self._fast_polling_active),
+                )
+            return
+        if self._ps_override:
+            if self._fast_polling_timer:
+                _LOGGER.debug(
+                    "Fast polling timer stopped: the Petite Souris override "
+                    "provides 1-minute polling"
+                )
+                self._fast_polling_timer()
+                self._fast_polling_timer = None
+            return
         if self._fast_polling_active and not self._fast_polling_timer:
             _LOGGER.debug("Starting fast polling timer for %s cats", len(self._fast_polling_active))
             self._fast_polling_timer = async_track_time_interval(
@@ -273,6 +424,7 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch cats data from /users/cats, then enrich each with /users/cats/{cat_id}."""
+        _LOGGER.debug("Main coordinator fetch starting")
         data = await self.auth.async_api_request("GET", ENDPOINT_CATS)
         
         if data is None:
@@ -316,12 +468,24 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
             else:
                 self._fast_polling_active.discard(cat_id)
         self._sync_fast_polling_timer()
-        
+
+        # Success path only: exceptions raised above skip this assignment,
+        # so the diagnostic sensor freezes at the last successful fetch.
+        self.last_successful_fetch = dt_util.now()
         return {"cats": enriched_cats}
 
     async def _async_setup_devices(self) -> None:
         """Register devices in the device registry."""
         dev_reg = async_get_device_registry(self.hass)
+        # Hub device hosting the per-account control entities (Spec 047).
+        # Registered unconditionally, even with zero cats.
+        dev_reg.async_get_or_create(
+            config_entry_id=self.entry.entry_id,
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Feelloo",
+            manufacturer="Feelloo",
+            model="Account",
+        )
         cats = self.data.get("cats", []) if self.data else []
         for cat in cats:
             if not isinstance(cat, dict):

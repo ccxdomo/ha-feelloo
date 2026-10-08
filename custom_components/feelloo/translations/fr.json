@@ -21,15 +21,18 @@
     "step": {
       "init": {
         "title": "Options Feelloo",
-        "description": "Mettez à jour vos identifiants Feelloo.",
+        "description": "Mettez à jour vos identifiants ou vos paramètres de polling. Laissez le mot de passe vide pour conserver vos identifiants actuels.",
         "data": {
           "email": "Email",
-          "password": "Mot de passe"
+          "password": "Mot de passe",
+          "polling_enabled": "Activer le polling automatique",
+          "polling_interval": "Intervalle de polling (minutes)"
         }
       }
     },
     "error": {
-      "invalid_auth": "Email ou mot de passe invalide."
+      "invalid_auth": "Email ou mot de passe invalide.",
+      "password_required": "Le mot de passe est requis pour changer l'adresse e-mail."
     }
   },
   "entity": {
@@ -131,21 +134,33 @@
       },
       "signal_strength": {
         "name": "Force du signal"
+      },
+      "last_update": {
+        "name": "Dernière mise à jour"
       }
     },
     "switch": {
       "petite_souris": {
         "name": "Petite Souris"
+      },
+      "polling_enabled": {
+        "name": "Polling automatique"
       }
     },
     "number": {
       "petite_souris_duration": {
         "name": "Durée Petite Souris"
+      },
+      "polling_interval": {
+        "name": "Intervalle de polling"
       }
     },
     "button": {
       "ring": {
         "name": "Sonnette"
+      },
+      "refresh_data": {
+        "name": "Actualiser les données"
       }
     }
   }

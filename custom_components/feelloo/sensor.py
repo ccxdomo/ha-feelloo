@@ -90,6 +90,9 @@ async def async_setup_entry(
     entities = []
     seen_ids: set[str] = set()
 
+    # Per-account diagnostic sensor (Spec 047)
+    entities.append(FeellooLastUpdateSensor(main, entry))
+
     for cat in main.cats:
         cat_uid = cat.get("_id")
         name = (cat.get("profile") or {}).get("name", "Unknown")
@@ -946,3 +949,63 @@ class FeellooSignalStrengthSensor(FeellooSensorBase):
         return {
             "rssi_dbm": rssi,
         }
+
+
+class FeellooLastUpdateSensor(CoordinatorEntity, SensorEntity):
+    """Diagnostic sensor showing when the last successful main fetch happened.
+
+    With polling disabled the timestamp freezes, making the data age visible;
+    the attributes explain the current polling settings. Default
+    CoordinatorEntity availability is kept: the sensor truthfully goes
+    unavailable on a genuine refresh failure (Spec 047 §8.2).
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "last_update"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: FeellooMainCoordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        uid = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{uid}_last_update"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Feelloo",
+            "manufacturer": "Feelloo",
+            "model": "Account",
+        }
+
+    @property
+    def native_value(self):
+        """Return the time of the last successful main fetch."""
+        return self.coordinator.last_successful_fetch
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the current polling settings as attributes.
+
+        These reflect the EFFECTIVE runtime state: while the Petite Souris
+        override runs, polling_enabled/polling_interval_minutes show the
+        temporary 1-minute cadence and petite_souris_override is true; the
+        polling switch and number entities keep showing the user's saved
+        preference (Spec 047 §4.2).
+        """
+        return {
+            "polling_enabled": self.coordinator.polling_enabled,
+            "polling_interval_minutes": self.coordinator.polling_interval_minutes,
+            "petite_souris_override": self.coordinator.petite_souris_override,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Register a listener so attributes follow option changes made elsewhere."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._entry.add_update_listener(self._async_on_entry_update)
+        )
+
+    async def _async_on_entry_update(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Write state after options changed through another surface."""
+        self.async_write_ha_state()

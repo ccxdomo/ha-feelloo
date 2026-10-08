@@ -18,6 +18,7 @@ Custom integration for [Feelloo](https://feelloo.com) cat trackers in Home Assis
 - **Ring button** — locate your cat by triggering the tag ringtone
 - **Extended search mode** — monitor search activation and expiration
 - **Dynamic fast polling** — when Petite Souris mode is enabled, polling increases to 1 minute for real-time GPS and signal strength updates
+- **Polling control** — disable automatic polling or change its cadence (1–1440 minutes), refresh on demand, and see data age — see [Polling Control](#polling-control)
 
 ## Installation
 
@@ -45,23 +46,78 @@ Your cats and their data will be automatically discovered.
 
 ## Architecture
 
-The integration uses **three separate DataUpdateCoordinators** for optimal polling:
+The integration uses **six DataUpdateCoordinators** for optimal polling:
 
 | Coordinator | Endpoint | Interval |
 |------------|----------|----------|
-| Main | `/users/cats` + `/users/cats/{cat_id}` | 5 minutes (1 min with Petite Souris) |
+| Main | `/users/cats` + `/users/cats/{cat_id}` | **Configurable** (default 5 minutes; 1 min with Petite Souris fast polling) |
 | Activity | `/users/cats/{cat_id}/activity?period_type=day` | 15 minutes |
+| Activity Week | `/users/cats/{cat_id}/activity?period_type=week` | 1 hour |
+| Activity Month | `/users/cats/{cat_id}/activity?period_type=month` | 6 hours |
 | Territory | `/users/cats/{cat_id}/territory/paths` | 15 minutes |
+| Session | `/users/cats/{cat_id}/territory/paths/{session_id}` | 30 minutes |
 
-All coordinators share a single Firebase auth manager with automatic token refresh every 50 minutes.
+All coordinators share a single Firebase auth manager with automatic token refresh every 50 minutes (always running, even when polling is disabled, so on-demand fetches can always authenticate).
 
 ### Dynamic Fast Polling
 
 When the **Petite Souris** switch is turned ON for a cat:
-- A dedicated timer triggers the Main coordinator refresh every **1 minute**
+- The integration temporarily sets the **main coordinator to a 1-minute polling interval** (the "Petite Souris override") — this is what makes the mode actually work, whether automatic polling is enabled or disabled
 - This affects GPS location, signal strength, battery, and all main coordinator entities
-- When the switch is turned OFF, the timer stops and normal 5-minute polling resumes
-- Multiple cats can have independent fast polling timers
+- When the mode ends (switch OFF or server-side expiry), **your polling settings are restored exactly** — including back to "disabled" if that is what you had configured
+- Multiple cats share one override: it engages when the first cat activates and ends when the last one deactivates; extending the duration or activating it twice changes nothing (idempotent)
+- **If you change a polling setting manually while the mode is active, your manual action wins** — the temporary 1-minute boost stops and will not re-engage until the mode is deactivated and activated again. While polling stays enabled, the mode still gets 1-minute updates through the legacy fast-polling timer
+- Your configured preference is never modified by the mode: it lives in the config entry options, and the temporary override is transient (in-memory; after a Home Assistant restart it is reconstructed from the Feelloo cloud's mode state)
+
+**Seeing the polling interval change to 1 minute on its own?** That is the override at work: while any cat has Petite Souris active, the main poller runs at 1 minute, and your saved settings resume automatically when the mode ends (switch OFF or expiry). To confirm, check the **Last Update** sensor's `petite_souris_override` attribute (`true` during the boost) or the info log line `Petite Souris active: temporary 1-minute polling override engaged`. The **Automatic Polling** switch and **Polling Interval** number keep showing your saved preference the whole time.
+
+## Polling Control
+
+You control how often (and whether) the Feelloo cloud is polled automatically. All settings live on the **Feelloo** hub device (one set per configured account) and in the integration's options flow (Settings → Devices & Services → Feelloo → Configure).
+
+### Settings
+
+| Setting | Where | Range / Default |
+|---------|-------|------------------|
+| **Automatic Polling** (switch, config) | Feelloo device | ON (default) / OFF |
+| **Polling Interval** (number, config) | Feelloo device | 1–1440 minutes, default **5** |
+
+Both settings can also be edited in the options flow, and both are persisted in the config entry options (they survive restarts). Changes apply live — no Home Assistant restart and no integration reload is needed.
+
+### What "polling disabled" means
+
+- The **main coordinator** (`/users/cats`) stops fetching on its own. After at most one already-scheduled fetch, zero automatic cloud calls are made for cat data.
+- **All other coordinators keep their fixed cadence** (activity 15 m / weekly 1 h / monthly 6 h / territory 15 m / session 30 m).
+- **Token refresh (auth housekeeping) keeps running** (~50 min) so manual refreshes and Petite Souris commands still work.
+- **Petite Souris + polling disabled**: turning Petite Souris ON while automatic polling is disabled **temporarily re-enables polling at 1 minute** so the mode actually tracks your cat (a log line notes it). When the mode ends, polling is disabled again automatically — your preference is remembered in the entry options and never modified. If you manually change any polling setting while the mode is active, your manual action wins (the temporary boost stops).
+- **The Last Update sensor shows the effective state**: while the override runs, its `polling_enabled` / `polling_interval_minutes` attributes show the temporary 1-minute cadence and `petite_souris_override` is `true`; the **Automatic Polling** switch and **Polling Interval** number keep showing your saved preference.
+- **Entities keep their last known values**: with no refreshes there are no failures, so nothing goes "unavailable" just because polling is off. Genuine failures (network down, bad credentials) still surface exactly as before.
+- The **Last Update** diagnostic sensor freezes at the last successful fetch, so data age is always visible; its attributes show the current polling settings.
+- Disabling polling applies a debounced immediate refresh when **re-enabling** or changing the interval while enabled (fresh data arrives within ~10 s), so changes take effect without waiting out the old timer.
+
+### Manual Refresh
+
+The **Refresh Data** button (one per account, on the Feelloo device) fetches everything now — the main cats data first, then activity, weekly/monthly activity, territory and session data. It works with polling on or off. Rapid double-presses are safe (they are coalesced).
+
+Automation example:
+
+```yaml
+automation:
+  - alias: "Refresh when I come home"
+    trigger:
+      - platform: zone
+        entity_id: person.owner
+        zone: zone.home
+        event: enter
+    action:
+      - service: button.press
+        target:
+          entity_id: button.feelloo_refresh_data
+```
+
+### Credentials in the options flow
+
+The options flow no longer asks for your password just to change polling settings — leave the password **blank to keep your current credentials**. Entering a new email (with password) or a new password still validates against Firebase and applies them as before.
 
 ## Entities
 
@@ -142,12 +198,21 @@ Replace `{cat_name}` with your cat's name slug (lowercase, spaces as underscores
 
 ### Switches
 - **Petite Souris** — enables/disables extended search mode with fast polling
-  - When ON: polling interval drops to **1 minute** for real-time GPS and signal strength
-  - When OFF: returns to normal **5 minute** polling
+  - When ON: polling interval drops to **1 minute** for real-time GPS and signal strength (unless automatic polling is disabled)
+  - When OFF: returns to normal polling
   - Each cat has its own independent timer
+- **Automatic Polling** (config) — on the **Feelloo** device; ON = the main poller runs automatically (default), OFF = no automatic polling (see [Polling Control](#polling-control))
+
+### Numbers
+- **Petite Souris Duration** — duration in hours used when Petite Souris is enabled
+- **Polling Interval** (config) — on the **Feelloo** device; main poller cadence in minutes (1–1440, default 5)
 
 ### Button
 - **Ring** — trigger the tag ringtone (only if `can_ring` is true)
+- **Refresh Data** — on the **Feelloo** device; fetches all Feelloo data now (all coordinators), regardless of polling state
+
+### Sensors (device-level, on the **Feelloo** hub device)
+- **Last Update** (diagnostic) — timestamp of the last successful cats fetch; freezes when polling is off so data age is visible. Attributes: `polling_enabled`, `polling_interval_minutes` (the **effective** state — during a Petite Souris override they show the temporary 1-minute cadence), and `petite_souris_override` (`true` while the override temporarily forces 1-minute polling)
 
 ## Device Registry
 
@@ -156,9 +221,11 @@ Each cat is registered as a device with:
 - Manufacturer: Feelloo
 - Model: Cat Tracker
 
+Each configured account also gets a **Feelloo** hub device (model: Account) hosting the per-account entities: **Automatic Polling**, **Polling Interval**, **Refresh Data**, and **Last Update**.
+
 ## Requirements
 
-- Home Assistant 2024.1.0 or newer
+- Home Assistant 2024.12.0 or newer (the options flow relies on the base `OptionsFlow` resolving `config_entry`, introduced in HA 2024.12)
 
 ## Support
 

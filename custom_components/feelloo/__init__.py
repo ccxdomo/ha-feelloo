@@ -10,7 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DOMAIN
+from .const import DOMAIN, get_polling_settings
 from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,7 +55,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "activity_month": activity_month_coordinator,
         "territory": territory_coordinator,
         "session": session_coordinator,
+        # Credentials snapshot (Spec 047): lets the update listener tell
+        # credential changes (reload) apart from options-only changes.
+        "active_credentials": dict(entry.data),
     }
+
+    # Options/credentials change listener (Spec 047): polling settings are
+    # applied live; only a genuine credential change reloads the entry.
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     # Now safe to do first refresh — all coordinators are in hass.data
     for coordinator_name, coordinator in [
@@ -134,6 +141,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data.get(DOMAIN):
             hass.services.async_remove(DOMAIN, SERVICE_SET_PETITE_SOURIS)
     return unload_ok
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle config entry updates.
+
+    A credential change reloads the entry so a new auth manager is built
+    with the updated credentials (same outcome as pre-1.8.0). Any other
+    change is an options-only change: polling settings are applied live,
+    without a reload, so entities keep their values and availability.
+    The live apply is idempotent, so it is safe if it fires more than once.
+    """
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if not data:
+        # Entry is being torn down — nothing to apply.
+        return
+    if dict(entry.data) != data["active_credentials"]:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    await data["main"].async_apply_polling_settings(*get_polling_settings(entry))
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
