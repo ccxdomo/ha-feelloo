@@ -58,10 +58,15 @@ Run the manual matrix on the owner's live install with debug logging (`custom_co
 
 ### T10 — Override visibility on the polling switch (owner follow-up 2, 2026-10-08)
 - `switch.py`: `is_on` reports the effective state during the §4.2 override (reads ON); dynamic icon (`mdi:clock-fast` while overridden, `mdi:autorenew` otherwise); `extra_state_attributes` = `saved_polling_enabled` / `saved_polling_interval_minutes` / `effective_polling_enabled` / `effective_polling_interval_minutes`; coordinator listener (`async_add_listener`) for live re-render on override transitions; entity-registry `translation_key` swap to `polling_enabled_override` via the supported `async_update_entity` API (guarded: skip when unregistered or user-renamed).
-- `number.py`: `native_value` unchanged (saved preference); `effective_polling_interval_minutes` attribute + coordinator listener.
+- `number.py`: `native_value` unchanged (saved preference); `effective_polling_interval_minutes` attribute + coordinator listener. *(Superseded by T11: `native_value` now displays the effective interval during the override; write path unchanged.)*
 - `translations/en.json` + `fr.json`: `entity.switch.polling_enabled_override.name` (full parity).
 - README/quickstart/contract/data-model updated for the visible-override behavior.
 **Accept:** V20 matrix row; the OFF-during-override command semantics unchanged and visibly NOT a no-op (switch flips ON→OFF, polling stops); the last-update sensor's `petite_souris_override` attribute remains the single source of truth; labels exist in both languages.
+
+### T11 — Number displays the effective interval (owner follow-up 3, 2026-10-08)
+- `number.py`: `native_value` displays the EFFECTIVE interval while the §4.2 override runs (1 minute), otherwise the saved preference; attributes `saved_polling_interval_minutes` / `effective_polling_interval_minutes` / `petite_souris_override` (mirroring the switch's attribute naming); write path UNCHANGED (reads the SAVED enabled flag, persists only the user's input, the apply call cancels the override — manual wins).
+- README.md + README_FR.md (both): the "keeps showing your saved preference" sentences replaced in both languages; quickstart updated.
+**Accept:** V21 matrix row; write-during-override cannot corrupt the preference (harness-proved, including with a disabled preference); the number returns to the saved value automatically after mode end; attribute naming symmetrical with the switch.
 
 ## Notes for Reviewer
 

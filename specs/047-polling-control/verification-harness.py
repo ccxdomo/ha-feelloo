@@ -913,14 +913,18 @@ async def test_override_visibility():
           and fr["entity"]["switch"]["polling_enabled_override"]["name"]
           == "Polling automatique (Petite Souris)")
 
-    # Number: keeps showing the saved preference, exposes the effective interval
+    # Number: displays the effective interval (owner follow-up 3), preference in attributes
     num = FeellooPollingIntervalNumber(coord, entry)
     num.hass = hass
     await num.async_added_to_hass()
-    check("V20: number keeps showing the saved preference during the override",
-          num.native_value == 5)
-    check("V20: number attribute exposes the effective interval",
-          num.extra_state_attributes == {"effective_polling_interval_minutes": 1})
+    check("V20/FU3: number displays the EFFECTIVE interval during the override",
+          num.native_value == 1)
+    check("V20/FU3: number attributes carry the saved preference + override flag",
+          num.extra_state_attributes == {
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_interval_minutes": 1,
+              "petite_souris_override": True,
+          })
 
     # OFF during the override: command semantics unchanged, NOT a no-op
     await sw.async_turn_off()
@@ -965,9 +969,87 @@ async def test_override_visibility():
           }
           and hass.entity_registry.entries["switch.feelloo_test_polling"].translation_key
           == "polling_enabled")
-    check("V20: number returns to normal after restore",
+    check("V20/FU3: number returns to the saved preference after restore",
           num.native_value == 5
-          and num.extra_state_attributes == {"effective_polling_interval_minutes": 5})
+          and num.extra_state_attributes == {
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_interval_minutes": 5,
+              "petite_souris_override": False,
+          })
+
+
+async def test_override_number_display():
+    """Owner follow-up 3: the interval number shows the effective truth.
+
+    Matrix row V21 — the owner's report: the number displayed 5 minutes
+    while the override actually ran at 1 minute. The number now mirrors
+    the switch's effective-state display, and the write path must update
+    the SAVED preference without corruption while the override runs.
+    """
+    from custom_components.feelloo.number import FeellooPollingIntervalNumber
+
+    def ps_cats3(programmed=True):
+        return [{
+            "_id": "cat_uid_1", "cat_id": 7,
+            "profile": {"name": "Cat 1"},
+            "geolocation": {"petite_souris": {"programmed": programmed}},
+        }]
+
+    # Preference enabled @ 5, override active -> the number displays 1 (effective)
+    hass, entry, auth, coord = await setup_coordinator(options={}, cats=ps_cats3())
+    await coord.async_setup()
+    num = FeellooPollingIntervalNumber(coord, entry)
+    num.hass = hass
+    await num.async_added_to_hass()
+    check("V21: during override the number displays the EFFECTIVE interval",
+          coord.petite_souris_override is True and num.native_value == 1)
+    check("V21: number attributes mirror the switch (saved/effective + override flag)",
+          num.extra_state_attributes == {
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_interval_minutes": 1,
+              "petite_souris_override": True,
+          })
+
+    # Write path during the override: saved preference updated, override cancelled
+    await num.async_set_native_value(10)
+    check("V21: write during override updates the SAVED preference (no corruption)",
+          entry.options.get("polling_interval") == 10
+          and coord.petite_souris_override is False)
+    check("V21: write during override cancels it; display converges to saved",
+          num.native_value == 10 and coord.update_interval == timedelta(minutes=10))
+
+    # Preference disabled + override active: display 1, write keeps polling off
+    hass2, entry2, auth2, coord2 = await setup_coordinator(
+        options={"polling_enabled": False}, cats=ps_cats3())
+    await coord2.async_setup()
+    num2 = FeellooPollingIntervalNumber(coord2, entry2)
+    num2.hass = hass2
+    await num2.async_added_to_hass()
+    check("V21: disabled-preference override also displays the effective 1 min",
+          coord2.petite_souris_override is True and num2.native_value == 1)
+    await num2.async_set_native_value(15)
+    check("V21: write during disabled-preference override keeps polling off",
+          coord2.update_interval is None
+          and entry2.options == {"polling_enabled": False, "polling_interval": 15}
+          and num2.native_value == 15)
+
+    # After the mode ends (no manual write): the number returns to the saved value
+    hass3, entry3, auth3, coord3 = await setup_coordinator(options={}, cats=ps_cats3())
+    await coord3.async_setup()
+    num3 = FeellooPollingIntervalNumber(coord3, entry3)
+    num3.hass = hass3
+    await num3.async_added_to_hass()
+    check("V21 setup: override active, number displays 1",
+          num3.native_value == 1)
+    auth3.cats = ps_cats3(programmed=False)
+    await coord3.async_request_refresh()          # mode ends -> restore
+    check("V21: after mode end the number returns to the saved preference",
+          coord3.petite_souris_override is False and num3.native_value == 5
+          and num3.extra_state_attributes == {
+              "saved_polling_interval_minutes": 5,
+              "effective_polling_interval_minutes": 5,
+              "petite_souris_override": False,
+          })
 
 
 async def test_apply_settings_cases():
@@ -1380,6 +1462,7 @@ async def main():
     await test_constructor()
     await test_petite_souris_override()
     await test_override_visibility()
+    await test_override_number_display()
     await test_apply_settings_cases()
     await test_listener()
     await test_button()

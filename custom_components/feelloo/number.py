@@ -113,7 +113,14 @@ class FeellooPetiteSourisDuration(CoordinatorEntity, NumberEntity):
 
 
 class FeellooPollingIntervalNumber(NumberEntity):
-    """Number entity for the main coordinator polling interval (minutes)."""
+    """Number entity for the main coordinator polling interval (minutes).
+
+    Displays the interval currently in force (owner follow-up 3): while the
+    Petite Souris override runs, the value shown is the effective 1-minute
+    cadence — mirroring the switch's effective-state display — and the
+    number returns to the saved preference automatically when the mode
+    ends. The saved preference always remains visible in the attributes.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "polling_interval"
@@ -144,21 +151,35 @@ class FeellooPollingIntervalNumber(NumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the persisted polling interval in minutes.
+        """Return the interval currently in force (minutes).
 
-        Always shows the user's saved preference — even during a Petite
-        Souris override (the temporary 1-minute cadence is visible in the
-        effective_polling_interval_minutes attribute instead).
+        Mirrors the switch's effective-state display (owner follow-up 3):
+        while the Petite Souris override runs, the value shown is the
+        effective 1-minute cadence — the number must never display the
+        saved preference while a different cadence is actually running.
+        Otherwise it shows the saved preference, and it returns to it
+        automatically when the mode ends.
         """
+        if self._coordinator.petite_souris_override:
+            return self._coordinator.polling_interval_minutes
         return get_polling_settings(self._entry)[1]
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Expose the effective interval while the Petite Souris override runs."""
+        """Expose the saved preference and the effective state.
+
+        Mirrors the switch's attribute naming (owner follow-up 3) so the
+        saved/effective pair reads identically on both config entities.
+        petite_souris_override is a display mirror of the coordinator's
+        single override flag — the Last Update sensor remains the
+        reference surface for "is the override running".
+        """
         return {
+            "saved_polling_interval_minutes": get_polling_settings(self._entry)[1],
             "effective_polling_interval_minutes": (
                 self._coordinator.polling_interval_minutes
             ),
+            "petite_souris_override": self._coordinator.petite_souris_override,
         }
 
     async def async_added_to_hass(self) -> None:
@@ -168,8 +189,8 @@ class FeellooPollingIntervalNumber(NumberEntity):
             self._entry.add_update_listener(self._async_on_entry_update)
         )
         # Override transitions happen inside coordinator fetches; re-render
-        # on coordinator updates so the effective-interval attribute stays
-        # fresh while the Petite Souris boost runs.
+        # on coordinator updates so the displayed interval and attributes
+        # stay fresh while the Petite Souris boost runs.
         self.async_on_remove(
             self._coordinator.async_add_listener(self._handle_coordinator_update)
         )
@@ -198,6 +219,13 @@ class FeellooPollingIntervalNumber(NumberEntity):
                 f"and {self._attr_native_max_value} minutes"
             )
 
+        # Write-path safety (owner follow-up 3): read the enabled flag from
+        # the SAVED preference — never the effective override state — so a
+        # manual write during an override updates the preference without
+        # corrupting it. Only the user's input is persisted (the override
+        # never writes entry.options), and the apply call cancels the
+        # override per the validated manual-wins semantics, so the display
+        # and reality converge immediately after a write.
         enabled, _ = get_polling_settings(self._entry)
         # Apply first (contract 047 §7.2), then persist; persisting fires the
         # update listener which re-applies idempotently. While polling is
