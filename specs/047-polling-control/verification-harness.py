@@ -21,12 +21,30 @@ touched module, and exercises the contract's logic requirements:
   - §8 entity surface (unique_ids, categories, diagnostic sensor)
   - §9 last-known-value structure (no refresh -> no failure -> available)
 
+Spec 048 extension (in place — the repo's single harness; the 048 spec
+names this file):
+  - H1 get_secondary_polling_intervals resolver table (contract §2.2, per key)
+  - H2 defaults preserved == the original 1.8.0 timedelta constants (hard req.)
+  - H3 each interval applied (construction + live §5 case table) + independence
+  - H4 no-restart application (listener + entity write order/validation)
+  - H5 options flow: 9-field schema, defaults/validators, all submit paths
+  - H6 entity surface (five CONFIG numbers + Last Update attribute)
+  - H7 NO SENSOR REMOVED: entity-set equality across four option sets
+  - H8 047 regression: secondary options never affect the main coordinator
+    or the Petite-Souris override
+
+Three 047 assertions that pinned the exact Last Update attribute dict and
+one that pinned the exact 4-field options schema were extended to the
+048-mandated surface (contract C11 adds one attribute; C12 adds five flow
+fields) — the 047 behaviour they verify is unchanged.
+
 Run: python3 specs/047-polling-control/verification-harness.py
 """
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import sys
@@ -604,6 +622,58 @@ async def setup_coordinator(options=None, cats=None, unique_id="owner@example.co
     return hass, entry, auth, coord
 
 
+# --- Spec 048 helpers -------------------------------------------------------
+
+SEC_DEFAULTS = {
+    "activity": 15,
+    "activity_week": 60,
+    "activity_month": 360,
+    "territory": 15,
+    "session": 30,
+}
+
+SEC_KEYS = ["activity", "activity_week", "activity_month", "territory", "session"]
+
+
+def _secondary_classes():
+    from custom_components.feelloo.coordinator import (
+        FeellooActivityCoordinator,
+        FeellooActivityWeekCoordinator,
+        FeellooActivityMonthCoordinator,
+        FeellooTerritoryCoordinator,
+        FeellooSessionCoordinator,
+    )
+    return [
+        ("activity", FeellooActivityCoordinator),
+        ("activity_week", FeellooActivityWeekCoordinator),
+        ("activity_month", FeellooActivityMonthCoordinator),
+        ("territory", FeellooTerritoryCoordinator),
+        ("session", FeellooSessionCoordinator),
+    ]
+
+
+async def setup_secondaries(options=None, cats=None):
+    """Full 048 setup: main coordinator (startup first refresh done) plus
+    the five secondary coordinators, all registered in hass.data exactly
+    like async_setup_entry does."""
+    hass, entry, auth, main = await setup_coordinator(options=options, cats=cats)
+    await main.async_setup()
+    coords = {}
+    for name, cls in _secondary_classes():
+        coord = cls(hass, entry, auth)
+        # Model the CoordinatorEntity subscribers that always exist in
+        # production, so refreshes arm the periodic timer like HA does.
+        coord.async_add_listener(lambda: None)
+        coords[name] = coord
+    hass.data.setdefault("feelloo", {})[entry.entry_id] = {
+        "main": main,
+        "auth": auth,
+        **coords,
+        "active_credentials": dict(entry.data),
+    }
+    return hass, entry, auth, main, coords
+
+
 # ---------------------------------------------------------------------------
 # Test suites
 # ---------------------------------------------------------------------------
@@ -832,13 +902,15 @@ async def test_petite_souris_override():
     check("§8.2+§4.2: sensor attributes show the effective 1-min override",
           sensor.extra_state_attributes == {"polling_enabled": True,
                                              "polling_interval_minutes": 1,
-                                             "petite_souris_override": True})
+                                             "petite_souris_override": True,
+                                             "secondary_polling_intervals": SEC_DEFAULTS})
     auth2.cats = ps_cats(programmed=False, count=2)
     await coord2.async_request_refresh()
     check("§8.2+§4.2: sensor attributes follow the restored preference",
           sensor.extra_state_attributes == {"polling_enabled": True,
                                              "polling_interval_minutes": 5,
-                                             "petite_souris_override": False})
+                                             "petite_souris_override": False,
+                                             "secondary_polling_intervals": SEC_DEFAULTS})
 
     # Switch event path also engages the override (fresh entry, no mode)
     hass3, entry3, auth3, coord3 = await setup_coordinator(
@@ -1215,7 +1287,8 @@ async def test_last_known_value():
     check("§8.2: attributes expose runtime polling settings",
           sensor.extra_state_attributes == {"polling_enabled": False,
                                              "polling_interval_minutes": 5,
-                                             "petite_souris_override": False})
+                                             "petite_souris_override": False,
+                                             "secondary_polling_intervals": SEC_DEFAULTS})
 
     # Genuine failure path intact: auth failure flips last_update_success
     fetch_time = coord.last_successful_fetch
@@ -1348,6 +1421,11 @@ async def test_options_flow():
         POLLING_INTERVAL_MAX, POLLING_INTERVAL_MIN,
     )
 
+    # Spec 048: the five interval keys the flow now merges into the
+    # options (resolved defaults when a submission omits them).
+    sec_opts = {f"polling_interval_{name}": minutes
+                for name, minutes in SEC_DEFAULTS.items()}
+
     hass = _FakeHass()
     entry = FakeEntry(
         data={"email": "owner@example.com", "password": "secret"},
@@ -1364,7 +1442,7 @@ async def test_options_flow():
     validators = {m.key: v for m, v in schema.items()}
     keys = set(markers)
     check("C12: form shows email/password/polling_enabled/polling_interval",
-          keys == {"email", "password", "polling_enabled", "polling_interval"})
+          {"email", "password", "polling_enabled", "polling_interval"} <= keys)
     check("C12: password defaults to blank (keep current)",
           markers["password"].default == "")
     check("C12: polling defaults resolve from current options",
@@ -1386,10 +1464,11 @@ async def test_options_flow():
     upd_entry, upd_kwargs = hass.config_entries.updates[-1]
     check("C12: polling-only -> create_entry with merged options",
           result["type"] == "create_entry"
-          and result["data"] == {"polling_enabled": False, "polling_interval": 10})
+          and result["data"] == {"polling_enabled": False, "polling_interval": 10,
+                                 **sec_opts})
     check("C12: polling-only -> options persisted, entry.data untouched",
           upd_kwargs.get("options") == {"polling_enabled": False,
-                                        "polling_interval": 10}
+                                        "polling_interval": 10, **sec_opts}
           and "data" not in upd_kwargs)
     check("C12: polling-only -> NO credential validation call",
           len(hass._session.posted) == posted_before
@@ -1426,9 +1505,10 @@ async def test_options_flow():
                                       "password": "newpass"})
     check("C12: credentials change -> polling options still merged",
           upd_kwargs.get("options") == {"polling_enabled": False,
-                                        "polling_interval": 10})
+                                        "polling_interval": 10, **sec_opts})
     check("C12: create_entry data == merged options (no options wipe)",
-          result["data"] == {"polling_enabled": False, "polling_interval": 10})
+          result["data"] == {"polling_enabled": False, "polling_interval": 10,
+                             **sec_opts})
 
     # Invalid credentials -> invalid_auth, nothing persisted
     def bad_response(url, payload):
@@ -1442,6 +1522,668 @@ async def test_options_flow():
     })
     check("C12: invalid credentials -> invalid_auth error, no update",
           result["type"] == "form" and result["errors"].get("base") == "invalid_auth")
+
+
+# ---------------------------------------------------------------------------
+# Spec 048 suites (H1–H8) — secondary polling intervals
+# ---------------------------------------------------------------------------
+
+def test_h1_secondary_resolver():
+    """H1 — resolver table per key (contract §2.2): absent/None -> default;
+    valid; bounds 1/1440; out-of-range -> DEFAULT (never clamped); string
+    coercion; garbage -> default; float truncation via int(); non-coercible
+    string float -> default."""
+    from custom_components.feelloo.const import (
+        SECONDARY_POLLING_INTERVALS,
+        get_secondary_polling_intervals,
+    )
+
+    def resolve_one(option_key, value, name):
+        return get_secondary_polling_intervals(
+            FakeEntry(options={option_key: value})
+        )[name]
+
+    check("H1: SECONDARY_POLLING_INTERVALS fixed key order",
+          list(SECONDARY_POLLING_INTERVALS) == SEC_KEYS)
+    check("H1: option keys follow the polling_interval_<name> convention",
+          all(opt == f"polling_interval_{name}"
+              for name, (opt, _) in SECONDARY_POLLING_INTERVALS.items()))
+    check("H1: defaults == the 1.8.0 cadences (15/60/360/15/30)",
+          [d for _, d in SECONDARY_POLLING_INTERVALS.values()]
+          == [15, 60, 360, 15, 30])
+    check("H1: no options -> full default dict",
+          get_secondary_polling_intervals(FakeEntry(options={})) == SEC_DEFAULTS)
+    check("H1: options None -> defaults",
+          get_secondary_polling_intervals(FakeEntry(options=None)) == SEC_DEFAULTS)
+    check("H1: entry without options attribute -> defaults (never raises)",
+          get_secondary_polling_intervals(object()) == SEC_DEFAULTS)
+
+    for name, (option_key, default) in SECONDARY_POLLING_INTERVALS.items():
+        check(f"H1/{name}: key absent -> default {default}",
+              get_secondary_polling_intervals(FakeEntry(options={}))[name] == default)
+        check(f"H1/{name}: None -> default {default}",
+              resolve_one(option_key, None, name) == default)
+        check(f"H1/{name}: valid 45 -> 45",
+              resolve_one(option_key, 45, name) == 45)
+        check(f"H1/{name}: min bound 1 -> 1",
+              resolve_one(option_key, 1, name) == 1)
+        check(f"H1/{name}: max bound 1440 -> 1440",
+              resolve_one(option_key, 1440, name) == 1440)
+        check(f"H1/{name}: 0 -> default {default} (not clamped)",
+              resolve_one(option_key, 0, name) == default)
+        check(f"H1/{name}: 1441 -> default {default} (not clamped)",
+              resolve_one(option_key, 1441, name) == default)
+        check(f"H1/{name}: numeric string '30' -> 30",
+              resolve_one(option_key, "30", name) == 30)
+        check(f"H1/{name}: garbage 'abc' -> default {default}",
+              resolve_one(option_key, "abc", name) == default)
+        check(f"H1/{name}: float 15.9 -> 15 (inherited int() truncation)",
+              resolve_one(option_key, 15.9, name) == 15)
+        check(f"H1/{name}: string '15.9' -> default {default} (not coercible)",
+              resolve_one(option_key, "15.9", name) == default)
+        if default == 15:
+            # 15.9 -> 15 equals the default here; a distinct float proves
+            # the truncation is real resolution, not a default fallback.
+            check(f"H1/{name}: float 16.9 -> 16 (truncation, not fallback)",
+                  resolve_one(option_key, 16.9, name) == 16)
+
+
+async def test_h2_defaults_preserved():
+    """H2 — hard requirement: with no options stored, every secondary
+    coordinator gets exactly the 1.8.0 cadence, asserted against the
+    original timedelta constants themselves (contract §2.1 cross-check:
+    timedelta(minutes=DEFAULT_*) == <CONST>)."""
+    from custom_components.feelloo.const import (
+        ACTIVITY_UPDATE_INTERVAL,
+        ACTIVITY_WEEK_UPDATE_INTERVAL,
+        ACTIVITY_MONTH_UPDATE_INTERVAL,
+        TERRITORY_UPDATE_INTERVAL,
+        SESSION_UPDATE_INTERVAL,
+    )
+    from custom_components.feelloo.coordinator import FeellooSecondaryCoordinator
+
+    pairs = [
+        ("activity", ACTIVITY_UPDATE_INTERVAL, 15),
+        ("activity_week", ACTIVITY_WEEK_UPDATE_INTERVAL, 60),
+        ("activity_month", ACTIVITY_MONTH_UPDATE_INTERVAL, 360),
+        ("territory", TERRITORY_UPDATE_INTERVAL, 15),
+        ("session", SESSION_UPDATE_INTERVAL, 30),
+    ]
+    for name, const, minutes in pairs:
+        check(f"H2: timedelta(minutes={minutes}) == the 1.8.0 {name} constant",
+              timedelta(minutes=minutes) == const)
+    hass, entry, auth, main, coords = await setup_secondaries(options={})
+    for name, const, minutes in pairs:
+        check(f"H2: {name} no-options update_interval == the 1.8.0 constant",
+              coords[name].update_interval == const,
+              f"{coords[name].update_interval} vs {const}")
+        check(f"H2: {name} no-options polling_interval_minutes == {minutes}",
+              coords[name].polling_interval_minutes == minutes)
+        check(f"H2: {name} coordinator name preserved",
+              coords[name].name == f"feelloo_{name}")
+    for name, cls in _secondary_classes():
+        check(f"H2: {name} is a FeellooSecondaryCoordinator subclass",
+              issubclass(cls, FeellooSecondaryCoordinator))
+    check("H2: construction with an options-less entry -> defaults, never raises",
+          _secondary_classes()[0][1](hass, object(), auth).update_interval
+          == ACTIVITY_UPDATE_INTERVAL)
+
+
+async def test_h3_interval_applied_and_independent():
+    """H3 — each interval applied at construction (independence: one key
+    set -> only that coordinator differs) and live (§5 case table: changed
+    value -> new interval + exactly one debounced refresh, new cadence
+    armed; unchanged -> idempotent no-op; bounded straggler)."""
+    from custom_components.feelloo.const import (
+        ACTIVITY_UPDATE_INTERVAL,
+        ACTIVITY_WEEK_UPDATE_INTERVAL,
+        ACTIVITY_MONTH_UPDATE_INTERVAL,
+        TERRITORY_UPDATE_INTERVAL,
+        SESSION_UPDATE_INTERVAL,
+    )
+    defaults = {
+        "activity": ACTIVITY_UPDATE_INTERVAL,
+        "activity_week": ACTIVITY_WEEK_UPDATE_INTERVAL,
+        "activity_month": ACTIVITY_MONTH_UPDATE_INTERVAL,
+        "territory": TERRITORY_UPDATE_INTERVAL,
+        "session": SESSION_UPDATE_INTERVAL,
+    }
+    one_key_cases = [
+        ("activity", 20),
+        ("activity_week", 120),
+        ("activity_month", 720),
+        ("territory", 45),
+        ("session", 90),
+    ]
+    for target, value in one_key_cases:
+        hass, entry, auth, main, coords = await setup_secondaries(
+            options={f"polling_interval_{target}": value})
+        for name in defaults:
+            if name == target:
+                check(f"H3: {target}={value} -> {target} constructed at {value} min",
+                      coords[name].update_interval == timedelta(minutes=value))
+            else:
+                check(f"H3: {target}={value} leaves {name} at its default",
+                      coords[name].update_interval == defaults[name])
+
+    # Live apply (§5 case table) on every coordinator.
+    hass, entry, auth, main, coords = await setup_secondaries(options={})
+    for name, value in one_key_cases:
+        coord = coords[name]
+        base = coord.refresh_count
+        await coord.async_apply_polling_interval(value)
+        check(f"H3: live apply {name} -> {value} min + exactly one refresh",
+              coord.update_interval == timedelta(minutes=value)
+              and coord.refresh_count == base + 1)
+        check(f"H3: live apply {name} -> polling_interval_minutes stored",
+              coord.polling_interval_minutes == value)
+        check(f"H3: {name} new cadence armed at {value} min",
+              coord._pending_timer is not None
+              and coord._pending_timer.interval == timedelta(minutes=value))
+        await coord.async_apply_polling_interval(value)
+        check(f"H3: {name} same-value re-apply -> idempotent no-op",
+              coord.refresh_count == base + 1)
+
+    # Straggler bound (§5): the forced refresh cancels the pending
+    # old-cadence timer, so the new cadence arms immediately.
+    act = coords["activity"]
+    pending_old = act._pending_timer
+    await act.async_apply_polling_interval(120)
+    check("H3: changed apply cancels the pending old-cadence timer (bounded straggler)",
+          pending_old is not None and pending_old.cancelled is True
+          and act._pending_timer is not None
+          and act._pending_timer.interval == timedelta(minutes=120))
+
+
+async def test_h4_no_restart_application():
+    """H4 — no-restart application: the real update listener applies all
+    five intervals live without a reload and without touching the main
+    coordinator's settings; the entity write path applies BEFORE persisting,
+    merges options, and rejects invalid values."""
+    from custom_components.feelloo import _async_update_listener
+    from custom_components.feelloo.number import FeellooSecondaryPollingIntervalNumber
+
+    hass, entry, auth, main, coords = await setup_secondaries(options={})
+    applied_main = []
+    orig_main_apply = main.async_apply_polling_settings
+
+    async def main_spy(enabled, interval):
+        applied_main.append((enabled, interval))
+        await orig_main_apply(enabled, interval)
+
+    main.async_apply_polling_settings = main_spy
+
+    entry.options = {
+        "polling_interval_activity": 20,
+        "polling_interval_activity_week": 120,
+        "polling_interval_activity_month": 720,
+        "polling_interval_territory": 45,
+        "polling_interval_session": 90,
+    }
+    refreshes_before = {k: coords[k].refresh_count for k in coords}
+    await _async_update_listener(hass, entry)
+    check("H4: listener applies all five intervals live (no reload)",
+          hass.config_entries.reloads == []
+          and coords["activity"].update_interval == timedelta(minutes=20)
+          and coords["activity_week"].update_interval == timedelta(minutes=120)
+          and coords["activity_month"].update_interval == timedelta(minutes=720)
+          and coords["territory"].update_interval == timedelta(minutes=45)
+          and coords["session"].update_interval == timedelta(minutes=90))
+    check("H4: each changed coordinator refreshed exactly once",
+          all(coords[k].refresh_count == refreshes_before[k] + 1 for k in coords))
+    check("H4: main settings unaffected (apply receives the main keys only)",
+          applied_main == [(True, 5)]
+          and main.update_interval == timedelta(minutes=5))
+
+    refreshes_before = {k: coords[k].refresh_count for k in coords}
+    await _async_update_listener(hass, entry)
+    check("H4: re-fired listener is a no-op (idempotent)",
+          all(coords[k].refresh_count == refreshes_before[k] for k in coords))
+
+    # Entity write path: apply-then-persist ORDER, options merge, data untouched.
+    num = FeellooSecondaryPollingIntervalNumber(coords["territory"], entry, "territory")
+    num.hass = hass
+    order_log = []
+    orig_apply = coords["territory"].async_apply_polling_interval
+
+    async def apply_spy(interval):
+        order_log.append("apply")
+        await orig_apply(interval)
+
+    coords["territory"].async_apply_polling_interval = apply_spy
+    orig_update = hass.config_entries.async_update_entry
+
+    def update_spy(entry_, **kwargs):
+        order_log.append("update")
+        return orig_update(entry_, **kwargs)
+
+    hass.config_entries.async_update_entry = update_spy
+
+    options_before = dict(entry.options)
+    await num.async_set_native_value(30)
+    upd_entry, upd_kwargs = hass.config_entries.updates[-1]
+    check("H4: entity write applies FIRST, persists second",
+          order_log[-2:] == ["apply", "update"],
+          f"call order: {order_log[-2:]}")
+    check("H4: entity write merges options (existing keys preserved, one key added)",
+          upd_kwargs.get("options")
+          == {**options_before, "polling_interval_territory": 30}
+          and "data" not in upd_kwargs)
+    check("H4: entity write leaves entry.data untouched (credentials only)",
+          entry.data == {"email": "owner@example.com", "password": "secret"})
+
+    refreshes_before = coords["territory"].refresh_count
+    await _async_update_listener(hass, entry)
+    check("H4: listener re-apply after the persist is a no-op",
+          coords["territory"].refresh_count == refreshes_before
+          and coords["territory"].update_interval == timedelta(minutes=30))
+
+    for bad in (0, 1441, 2.5, 0.5, -1):
+        try:
+            await num.async_set_native_value(bad)
+            ok = False
+        except ValueError:
+            ok = True
+        check(f"H4: secondary number rejects invalid value {bad}", ok)
+    check("H4: invalid writes persisted nothing",
+          hass.config_entries.updates[-1][1].get("options")
+          == {**options_before, "polling_interval_territory": 30})
+
+
+async def test_h5_options_flow_secondary():
+    """H5 — options flow: 9-field schema with resolved defaults and
+    Range(1..1440) validators; polling-only submission persists all seven
+    polling keys with no Firebase POST and no entry.data write; the
+    credentials paths (password_required / validated merge / invalid_auth)
+    stay intact; the handler stays no-arg (HA >= 2026.9 read-only
+    config_entry — merged PR #2 must not regress)."""
+    from custom_components.feelloo.config_flow import (
+        FeellooConfigFlow,
+        FeellooOptionsFlowHandler,
+    )
+    from custom_components.feelloo.const import (
+        POLLING_INTERVAL_MAX,
+        POLLING_INTERVAL_MIN,
+        SECONDARY_POLLING_INTERVALS,
+        get_secondary_polling_intervals,
+    )
+
+    sig = inspect.signature(FeellooOptionsFlowHandler.__init__)
+    check("H5: options flow handler takes no constructor argument",
+          [p.name for p in sig.parameters.values()] == ["self"])
+    check("H5: async_get_options_flow returns a no-arg-constructed handler",
+          isinstance(FeellooConfigFlow.async_get_options_flow(None),
+                     FeellooOptionsFlowHandler))
+
+    hass = _FakeHass()
+    entry = FakeEntry(
+        data={"email": "owner@example.com", "password": "secret"},
+        options={"polling_enabled": True, "polling_interval": 5,
+                 "polling_interval_territory": 45},
+        unique_id="owner@example.com")
+    flow = FeellooOptionsFlowHandler()
+    flow.hass = hass
+    flow.config_entry = entry
+
+    result = await flow.async_step_init(None)
+    schema = result["data_schema"].schema
+    markers = {m.key: m for m in schema}
+    validators = {m.key: v for m, v in schema.items()}
+    check("H5: 9-field schema (credentials + 047 polling + five intervals)",
+          set(markers) == {"email", "password", "polling_enabled",
+                           "polling_interval",
+                           "polling_interval_activity",
+                           "polling_interval_activity_week",
+                           "polling_interval_activity_month",
+                           "polling_interval_territory",
+                           "polling_interval_session"})
+    resolved = get_secondary_polling_intervals(entry)
+    for name, (option_key, _) in SECONDARY_POLLING_INTERVALS.items():
+        check(f"H5: {name} default resolved from current options",
+              markers[option_key].default == resolved[name])
+        rng = next(v for v in validators[option_key].validators
+                   if isinstance(v, _Range))
+        check(f"H5: {name} schema enforces Range(1..1440)",
+              rng.min == POLLING_INTERVAL_MIN and rng.max == POLLING_INTERVAL_MAX)
+
+    # Polling-only submission: all seven polling keys persisted, no POST,
+    # no entry.data change.
+    posted_before = len(hass._session.posted)
+    updates_before = len(hass.config_entries.updates)
+    result = await flow.async_step_init({
+        "email": "owner@example.com", "password": "",
+        "polling_enabled": True, "polling_interval": 5,
+        "polling_interval_activity": 60,
+        "polling_interval_activity_week": 1440,
+        "polling_interval_activity_month": 1440,
+        "polling_interval_territory": 1440,
+        "polling_interval_session": 1440,
+    })
+    expected = {**entry.options,
+                "polling_interval_activity": 60,
+                "polling_interval_activity_week": 1440,
+                "polling_interval_activity_month": 1440,
+                "polling_interval_territory": 1440,
+                "polling_interval_session": 1440}
+    upd_entry, upd_kwargs = hass.config_entries.updates[-1]
+    check("H5: polling-only -> create_entry data == merged options (7 polling keys)",
+          result["type"] == "create_entry" and result["data"] == expected)
+    check("H5: polling-only -> options persisted, entry.data untouched",
+          upd_kwargs.get("options") == expected and "data" not in upd_kwargs)
+    check("H5: polling-only -> NO Firebase POST",
+          len(hass._session.posted) == posted_before
+          and len(hass.config_entries.updates) == updates_before + 1)
+
+    # Partial submission (fields omitted): unsubmitted keys keep current values.
+    updates_before = len(hass.config_entries.updates)
+    result = await flow.async_step_init({
+        "email": "owner@example.com", "password": "",
+        "polling_enabled": False,
+    })
+    upd_entry, upd_kwargs = hass.config_entries.updates[-1]
+    check("H5: partial submission keeps unsubmitted keys at current values",
+          upd_kwargs.get("options") == {**expected, "polling_enabled": False})
+    check("H5: partial submission -> create_entry with merged options",
+          result["data"] == {**expected, "polling_enabled": False})
+
+    # Credentials paths intact.
+    updates_before = len(hass.config_entries.updates)
+    result = await flow.async_step_init({
+        "email": "changed@example.com", "password": "",
+        "polling_enabled": False,
+    })
+    check("H5: email change without password -> password_required, nothing persisted",
+          result["type"] == "form"
+          and result["errors"].get("base") == "password_required"
+          and len(hass.config_entries.updates) == updates_before)
+
+    def ok_response(url, payload):
+        return _FakeResponse(200, {"idToken": "x"})
+
+    hass._session.post_responses.append(ok_response)
+    result = await flow.async_step_init({
+        "email": "changed@example.com", "password": "newpass",
+        "polling_enabled": False,
+    })
+    upd_entry, upd_kwargs = hass.config_entries.updates[-1]
+    check("H5: validated credentials change -> Firebase POST performed",
+          len(hass._session.posted) > posted_before)
+    check("H5: credentials change -> entry.data updated, options merged incl. the five",
+          upd_kwargs.get("data") == {"email": "changed@example.com",
+                                      "password": "newpass"}
+          and upd_kwargs.get("options") == {**expected, "polling_enabled": False})
+    check("H5: credentials change -> create_entry data == merged options",
+          result["data"] == {**expected, "polling_enabled": False})
+
+    def bad_response(url, payload):
+        return _FakeResponse(400, {"error": {"message": "INVALID_PASSWORD"}})
+
+    hass._session.post_responses.append(bad_response)
+    updates_before = len(hass.config_entries.updates)
+    result = await flow.async_step_init({
+        "email": "changed@example.com", "password": "wrongpass",
+    })
+    check("H5: invalid credentials -> invalid_auth error, no update",
+          result["type"] == "form"
+          and result["errors"].get("base") == "invalid_auth"
+          and len(hass.config_entries.updates) == updates_before)
+
+
+async def test_h6_entity_surface():
+    """H6 — entity surface: five CONFIG numbers on the Feelloo hub device
+    with stable unique_ids {uid}_polling_interval_<name>, bounds/step/unit/
+    mode, translation keys, resolved native_value, entry_id fallback, fixed
+    instantiation order, defensive skip; the Last Update sensor carries the
+    secondary_polling_intervals attribute."""
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # stub
+    from custom_components.feelloo.number import (
+        FeellooSecondaryPollingIntervalNumber,
+        async_setup_entry as number_setup,
+    )
+    from custom_components.feelloo.sensor import FeellooLastUpdateSensor
+
+    hass, entry, auth, main, coords = await setup_secondaries(
+        options={"polling_interval_territory": 90})
+    uid = entry.unique_id
+
+    check("H6: plain NumberEntity (NOT CoordinatorEntity) — usable while a coordinator failed",
+          not issubclass(FeellooSecondaryPollingIntervalNumber, CoordinatorEntity))
+
+    resolved = {**SEC_DEFAULTS, "territory": 90}
+    for name in SEC_KEYS:
+        num = FeellooSecondaryPollingIntervalNumber(coords[name], entry, name)
+        num.hass = hass
+        opt_key = f"polling_interval_{name}"
+        check(f"H6: {name} unique_id == {{uid}}_{opt_key}",
+              num.unique_id == f"{uid}_{opt_key}")
+        check(f"H6: {name} translation_key == option key",
+              num.translation_key == opt_key)
+        check(f"H6: {name} CONFIG category / has_entity_name / icon",
+              num.entity_category == "config"
+              and num.has_entity_name is True
+              and num.icon == "mdi:clock-outline")
+        check(f"H6: {name} bounds 1..1440 / step 1 / unit min / mode box",
+              (num.native_min_value, num.native_max_value, num.native_step,
+               num.native_unit_of_measurement, num.mode)
+              == (1, 1440, 1, "min", "box"))
+        check(f"H6: {name} hub device_info (Feelloo / Account)",
+              num._attr_device_info == {"identifiers": {("feelloo", entry.entry_id)},
+                                        "name": "Feelloo",
+                                        "manufacturer": "Feelloo",
+                                        "model": "Account"})
+        check(f"H6: {name} native_value reads resolved options ({resolved[name]})",
+              num.native_value == resolved[name])
+        check(f"H6: {name} has no extra_state_attributes (nothing to distinguish)",
+              getattr(num, "extra_state_attributes", None) is None)
+
+    legacy = FakeEntry(entry_id="legacy_id")
+    check("H6: legacy entry falls back to entry_id in unique_id",
+          FeellooSecondaryPollingIntervalNumber(
+              coords["activity"], legacy, "activity").unique_id
+          == "legacy_id_polling_interval_activity")
+
+    # The number platform instantiates the five in the fixed order,
+    # alongside the pre-existing entities. Note: AddEntitiesCallback is a
+    # SYNC callback in HA (async_add_entities schedules internally), so
+    # the collector must be a plain function.
+    collected = []
+
+    def collect(entities):
+        collected.extend(entities)
+
+    await number_setup(hass, entry, collect)
+    secondary_ids = [e.unique_id for e in collected
+                     if isinstance(e, FeellooSecondaryPollingIntervalNumber)]
+    check("H6: number platform creates the five in the fixed order",
+          secondary_ids == [f"{uid}_polling_interval_{name}" for name in SEC_KEYS])
+    check("H6: pre-existing number entities still created (main interval + durations)",
+          f"{uid}_polling_interval" in {e.unique_id for e in collected}
+          and "cat_uid_1_petite_souris_duration" in {e.unique_id for e in collected})
+
+    # Defensive skip: a missing coordinator logs a warning, others still set up.
+    broken_hass, broken_entry, b_auth, broken_main, b_coords = (
+        await setup_secondaries(options={}))
+    broken_hass.data["feelloo"][broken_entry.entry_id].pop("territory")
+    collected2 = []
+
+    def collect2(entities):
+        collected2.extend(entities)
+
+    capture = LogCapture()
+    logging.getLogger("custom_components.feelloo.number").addHandler(capture)
+    await number_setup(broken_hass, broken_entry, collect2)
+    ids2 = {e.unique_id for e in collected2}
+    check("H6: missing coordinator -> skip-with-warning, others still created",
+          "owner@example.com_polling_interval_territory" not in ids2
+          and len([e for e in collected2
+                   if isinstance(e, FeellooSecondaryPollingIntervalNumber)]) == 4
+          and any("territory" in m for m in capture.records))
+    logging.getLogger("custom_components.feelloo.number").removeHandler(capture)
+
+    # Entry-update listener: state follows options changed elsewhere.
+    num2 = FeellooSecondaryPollingIntervalNumber(coords["activity"], entry, "activity")
+    num2.hass = hass
+    await num2.async_added_to_hass()
+    before = num2.written_states
+    await num2._async_on_entry_update(hass, entry)
+    check("H6: secondary number re-renders on entry updates from other surfaces",
+          num2.written_states > before)
+
+    # Last Update sensor: the new attribute with the resolved dict; the
+    # three 047 attributes unchanged.
+    sens = FeellooLastUpdateSensor(main, entry)
+    attrs = sens.extra_state_attributes
+    check("H6: Last Update attribute secondary_polling_intervals == resolved dict",
+          attrs["secondary_polling_intervals"] == resolved)
+    check("H6: the three 047 attributes unchanged",
+          attrs["polling_enabled"] is True
+          and attrs["polling_interval_minutes"] == 5
+          and attrs["petite_souris_override"] is False)
+
+
+async def test_h7_no_sensor_removed():
+    """H7 — NO SENSOR REMOVED (contract §7): the executable refutation of
+    the hide-sensors approach. The sensor and number entity SETS are
+    identical under four option sets (defaults, recommended, quiet,
+    invalid) and identical to the enumerated 1.8.0 surface. Slowing never
+    removes, hides, or disables anything."""
+    import custom_components.feelloo.sensor as sensor_module
+    import custom_components.feelloo.number as number_module
+
+    uid = "owner@example.com"
+    option_sets = [
+        ("defaults", {}),
+        ("recommended", {"polling_interval_activity": 15,
+                        "polling_interval_activity_week": 1440,
+                        "polling_interval_activity_month": 1440,
+                        "polling_interval_territory": 1440,
+                        "polling_interval_session": 1440}),
+        ("quiet", {"polling_enabled": False,
+                   "polling_interval_activity": 1440,
+                   "polling_interval_activity_week": 1440,
+                   "polling_interval_activity_month": 1440,
+                   "polling_interval_territory": 1440,
+                   "polling_interval_session": 1440}),
+        ("invalid", {"polling_interval_activity": 0,
+                     "polling_interval_activity_week": 5000,
+                     "polling_interval_activity_month": "abc",
+                     "polling_interval_territory": None,
+                     "polling_interval_session": 15.9}),
+    ]
+
+    # The exact 1.8.0 single-cat sensor surface (Last Update + 25 per cat).
+    expected_sensors = {f"{uid}_last_update"} | {
+        f"cat_uid_1_{key}" for key in [
+            "battery", "latitude", "longitude", "gps_precision", "last_seen",
+            "presence_time", "extended_search_expiration", "signal_strength",
+            "activity", "activity_rest", "activity_calm", "activity_action",
+            "last_outing_start", "last_outing_end", "outing_count",
+            "last_session_duration", "last_session_points_count",
+            "last_session_start", "last_session_end",
+            "activity_rest_week", "activity_calm_week", "activity_action_week",
+            "activity_rest_month", "activity_calm_month", "activity_action_month",
+        ]}
+
+    sensor_sets = {}
+    number_sets = {}
+    for label, options in option_sets:
+        hass, entry, auth, main, coords = await setup_secondaries(options=options)
+        collected_s = []
+
+        def collect_s(entities):
+            collected_s.extend(entities)
+
+        await sensor_module.async_setup_entry(hass, entry, collect_s)
+        sensor_sets[label] = [e.unique_id for e in collected_s]
+
+        collected_n = []
+
+        def collect_n(entities):
+            collected_n.extend(entities)
+
+        await number_module.async_setup_entry(hass, entry, collect_n)
+        number_sets[label] = [e.unique_id for e in collected_n]
+
+    for label, _ in option_sets:
+        check(f"H7: sensor entity SET identical under '{label}' options",
+              set(sensor_sets[label]) == set(sensor_sets["defaults"]))
+    for label, _ in option_sets:
+        check(f"H7: sensor set under '{label}' == the enumerated 1.8.0 surface",
+              set(sensor_sets[label]) == expected_sensors)
+    check("H7: no duplicate unique_ids in the sensor list",
+          len(sensor_sets["defaults"]) == len(set(sensor_sets["defaults"])))
+    for label, _ in option_sets:
+        check(f"H7: number entity SET identical under '{label}' options",
+              set(number_sets[label]) == set(number_sets["defaults"]))
+    check("H7: pre-existing number entities unaffected by any option set",
+          all(f"{uid}_polling_interval" in set(number_sets[label])
+              and "cat_uid_1_petite_souris_duration" in set(number_sets[label])
+              for label, _ in option_sets))
+    check("H7: the five secondary numbers present under every option set",
+          all(f"{uid}_polling_interval_{name}" in set(number_sets[label])
+              for label, _ in option_sets for name in SEC_KEYS))
+
+
+async def test_h8_047_regression_secondary_isolation():
+    """H8 — 047 regression: secondary options never affect the main
+    coordinator (constructor resolution, resolver) or the Petite-Souris
+    override; the five settings never read or write override state."""
+    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator  # stub
+    from custom_components.feelloo.const import get_polling_settings
+    from custom_components.feelloo.coordinator import FeellooMainCoordinator
+    from custom_components.feelloo.number import FeellooSecondaryPollingIntervalNumber
+
+    slow = {f"polling_interval_{name}": 1440 for name in SEC_KEYS}
+
+    # Constructor resolution: main settings come from ITS keys only.
+    hass, entry, auth, main, coords = await setup_secondaries(
+        options={"polling_enabled": False, "polling_interval": 20, **slow})
+    check("H8: main constructor resolution ignores secondary keys (disabled @ 20)",
+          main.update_interval is None
+          and main.polling_enabled is False
+          and main.polling_interval_minutes == 20)
+    check("H8: get_polling_settings ignores secondary keys",
+          get_polling_settings(entry) == (False, 20))
+    check("H8: main still a direct DataUpdateCoordinator subclass (047 freeze)",
+          FeellooMainCoordinator.__bases__ == (DataUpdateCoordinator,))
+    check("H8: secondaries at 1440 while main disabled (quiet-profile coherence)",
+          all(coords[k].update_interval == timedelta(minutes=1440) for k in coords))
+
+    # Petite-Souris interplay (matrix L9 semantics).
+    def ps_cats(programmed=True):
+        return [{
+            "_id": "cat_uid_1", "cat_id": 7,
+            "profile": {"name": "Cat 1"},
+            "geolocation": {"petite_souris": {"programmed": programmed}},
+        }]
+
+    hass, entry, auth, main, coords = await setup_secondaries(
+        options=dict(slow), cats=ps_cats())
+    check("H8/L9: Petite Souris engages the main override at 1 min with slowed secondaries",
+          main.petite_souris_override is True
+          and main.update_interval == timedelta(minutes=1))
+    check("H8/L9: secondaries keep their slow cadences during the override",
+          all(coords[k].update_interval == timedelta(minutes=1440) for k in coords))
+    num = FeellooSecondaryPollingIntervalNumber(coords["territory"], entry, "territory")
+    num.hass = hass
+    check("H8: secondary number value is override-independent (no override concept)",
+          num.native_value == 1440)
+    await coords["territory"].async_apply_polling_interval(15)
+    check("H8: secondary live apply during the override does not disturb it",
+          main.petite_souris_override is True
+          and main.update_interval == timedelta(minutes=1)
+          and coords["territory"].update_interval == timedelta(minutes=15))
+    await main.async_apply_polling_settings(True, 10)
+    check("H8: manual main change cancels the override (047 manual-wins intact)",
+          main.petite_souris_override is False
+          and main.update_interval == timedelta(minutes=10))
+    check("H8: secondaries keep their cadences across the override cycle",
+          coords["territory"].update_interval == timedelta(minutes=15)
+          and coords["session"].update_interval == timedelta(minutes=1440))
+    check("H8: secondaries expose no Petite-Souris override state",
+          not hasattr(coords["activity"], "petite_souris_override"))
+    check("H8: entry.options untouched by the override and the applies",
+          entry.options == slow)
 
 
 async def main():
@@ -1469,6 +2211,16 @@ async def main():
     await test_last_known_value()
     await test_entities()
     await test_options_flow()
+
+    # Spec 048 suites (secondary polling intervals)
+    test_h1_secondary_resolver()
+    await test_h2_defaults_preserved()
+    await test_h3_interval_applied_and_independent()
+    await test_h4_no_restart_application()
+    await test_h5_options_flow_secondary()
+    await test_h6_entity_surface()
+    await test_h7_no_sensor_removed()
+    await test_h8_047_regression_secondary_isolation()
 
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n=== {len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed ===")

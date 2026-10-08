@@ -21,12 +21,17 @@
     "step": {
       "init": {
         "title": "Options Feelloo",
-        "description": "Mettez à jour vos identifiants ou vos paramètres de polling. Laissez le mot de passe vide pour conserver vos identifiants actuels.",
+        "description": "Mettez à jour vos identifiants ou vos paramètres de polling (coordinateur principal et coordinateurs secondaires). Laissez le mot de passe vide pour conserver vos identifiants actuels.",
         "data": {
           "email": "Email",
           "password": "Mot de passe",
           "polling_enabled": "Activer le polling automatique",
-          "polling_interval": "Intervalle de polling (minutes)"
+          "polling_interval": "Intervalle de polling (minutes)",
+          "polling_interval_activity": "Intervalle de polling de l'activité (minutes)",
+          "polling_interval_activity_week": "Intervalle de polling de l'activité hebdomadaire (minutes)",
+          "polling_interval_activity_month": "Intervalle de polling de l'activité mensuelle (minutes)",
+          "polling_interval_territory": "Intervalle de polling du territoire (minutes)",
+          "polling_interval_session": "Intervalle de polling des sessions (minutes)"
         }
       }
     },
@@ -156,6 +161,21 @@
       },
       "polling_interval": {
         "name": "Intervalle de polling"
+      },
+      "polling_interval_activity": {
+        "name": "Intervalle de polling — Activité"
+      },
+      "polling_interval_activity_week": {
+        "name": "Intervalle de polling — Activité hebdo"
+      },
+      "polling_interval_activity_month": {
+        "name": "Intervalle de polling — Activité mensuelle"
+      },
+      "polling_interval_territory": {
+        "name": "Intervalle de polling — Territoire"
+      },
+      "polling_interval_session": {
+        "name": "Intervalle de polling — Session"
       }
     },
     "button": {

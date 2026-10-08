@@ -21,11 +21,17 @@ from .const import (
     CONF_PASSWORD,
     CONF_POLLING_ENABLED,
     CONF_POLLING_INTERVAL,
+    CONF_POLLING_INTERVAL_ACTIVITY,
+    CONF_POLLING_INTERVAL_ACTIVITY_WEEK,
+    CONF_POLLING_INTERVAL_ACTIVITY_MONTH,
+    CONF_POLLING_INTERVAL_TERRITORY,
+    CONF_POLLING_INTERVAL_SESSION,
     POLLING_INTERVAL_MIN,
     POLLING_INTERVAL_MAX,
     FIREBASE_API_KEY,
     FIREBASE_SIGNIN_URL,
     get_polling_settings,
+    get_secondary_polling_intervals,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,6 +131,7 @@ class FeellooOptionsFlowHandler(OptionsFlow):
 
         current_email = self.config_entry.data.get(CONF_EMAIL, "")
         current_enabled, current_interval = get_polling_settings(self.config_entry)
+        current_secondary = get_secondary_polling_intervals(self.config_entry)
 
         if user_input is not None:
             new_email = user_input.get(CONF_EMAIL, current_email).strip().casefold()
@@ -135,6 +142,21 @@ class FeellooOptionsFlowHandler(OptionsFlow):
                 **self.config_entry.options,
                 CONF_POLLING_ENABLED: user_input.get(CONF_POLLING_ENABLED, current_enabled),
                 CONF_POLLING_INTERVAL: user_input.get(CONF_POLLING_INTERVAL, current_interval),
+                CONF_POLLING_INTERVAL_ACTIVITY: user_input.get(
+                    CONF_POLLING_INTERVAL_ACTIVITY, current_secondary["activity"]
+                ),
+                CONF_POLLING_INTERVAL_ACTIVITY_WEEK: user_input.get(
+                    CONF_POLLING_INTERVAL_ACTIVITY_WEEK, current_secondary["activity_week"]
+                ),
+                CONF_POLLING_INTERVAL_ACTIVITY_MONTH: user_input.get(
+                    CONF_POLLING_INTERVAL_ACTIVITY_MONTH, current_secondary["activity_month"]
+                ),
+                CONF_POLLING_INTERVAL_TERRITORY: user_input.get(
+                    CONF_POLLING_INTERVAL_TERRITORY, current_secondary["territory"]
+                ),
+                CONF_POLLING_INTERVAL_SESSION: user_input.get(
+                    CONF_POLLING_INTERVAL_SESSION, current_secondary["session"]
+                ),
             }
 
             if credentials_changed and not new_password:
@@ -176,6 +198,21 @@ class FeellooOptionsFlowHandler(OptionsFlow):
                     ): cv.boolean,
                     vol.Optional(
                         CONF_POLLING_INTERVAL, default=current_interval
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL_ACTIVITY, default=current_secondary["activity"]
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL_ACTIVITY_WEEK, default=current_secondary["activity_week"]
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL_ACTIVITY_MONTH, default=current_secondary["activity_month"]
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL_TERRITORY, default=current_secondary["territory"]
+                    ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
+                    vol.Optional(
+                        CONF_POLLING_INTERVAL_SESSION, default=current_secondary["session"]
                     ): vol.All(vol.Coerce(int), vol.Range(min=POLLING_INTERVAL_MIN, max=POLLING_INTERVAL_MAX)),
                 }
             ),

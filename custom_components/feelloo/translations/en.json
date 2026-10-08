@@ -21,12 +21,17 @@
     "step": {
       "init": {
         "title": "Feelloo Options",
-        "description": "Update your Feelloo credentials or polling settings. Leave the password blank to keep your current credentials.",
+        "description": "Update your Feelloo credentials or polling settings (main and secondary coordinators). Leave the password blank to keep your current credentials.",
         "data": {
           "email": "Email",
           "password": "Password",
           "polling_enabled": "Enable automatic polling",
-          "polling_interval": "Polling interval (minutes)"
+          "polling_interval": "Polling interval (minutes)",
+          "polling_interval_activity": "Activity polling interval (minutes)",
+          "polling_interval_activity_week": "Weekly activity polling interval (minutes)",
+          "polling_interval_activity_month": "Monthly activity polling interval (minutes)",
+          "polling_interval_territory": "Territory polling interval (minutes)",
+          "polling_interval_session": "Session polling interval (minutes)"
         }
       }
     },
@@ -156,6 +161,21 @@
       },
       "polling_interval": {
         "name": "Polling Interval"
+      },
+      "polling_interval_activity": {
+        "name": "Polling Interval — Activity"
+      },
+      "polling_interval_activity_week": {
+        "name": "Polling Interval — Activity Week"
+      },
+      "polling_interval_activity_month": {
+        "name": "Polling Interval — Activity Month"
+      },
+      "polling_interval_territory": {
+        "name": "Polling Interval — Territory"
+      },
+      "polling_interval_session": {
+        "name": "Polling Interval — Session"
       }
     },
     "button": {

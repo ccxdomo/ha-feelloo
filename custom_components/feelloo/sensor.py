@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, get_secondary_polling_intervals
 from .coordinator import FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -991,12 +991,15 @@ class FeellooLastUpdateSensor(CoordinatorEntity, SensorEntity):
         override runs, polling_enabled/polling_interval_minutes show the
         temporary 1-minute cadence and petite_souris_override is true; the
         polling switch and number entities keep showing the user's saved
-        preference (Spec 047 §4.2).
+        preference (Spec 047 §4.2). secondary_polling_intervals (Spec 048)
+        shows the five configured secondary cadences — saved == effective
+        for secondaries, since there is no override concept for them.
         """
         return {
             "polling_enabled": self.coordinator.polling_enabled,
             "polling_interval_minutes": self.coordinator.polling_interval_minutes,
             "petite_souris_override": self.coordinator.petite_souris_override,
+            "secondary_polling_intervals": get_secondary_polling_intervals(self._entry),
         }
 
     async def async_added_to_hass(self) -> None:

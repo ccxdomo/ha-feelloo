@@ -16,9 +16,11 @@ from .const import (
     DOMAIN,
     POLLING_INTERVAL_MIN,
     POLLING_INTERVAL_MAX,
+    SECONDARY_POLLING_INTERVALS,
     get_polling_settings,
+    get_secondary_polling_intervals,
 )
-from .coordinator import FeellooMainCoordinator
+from .coordinator import FeellooMainCoordinator, FeellooSecondaryCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,8 +38,22 @@ async def async_setup_entry(
         return
 
     entities = []
-    # Per-account polling control (Spec 047), then one duration entity per cat.
+    # Per-account polling control (Spec 047), then the five secondary
+    # polling interval numbers (Spec 048, fixed order), then one duration
+    # entity per cat.
     entities.append(FeellooPollingIntervalNumber(main_coordinator, entry))
+    for key in SECONDARY_POLLING_INTERVALS:
+        coordinator = hass.data[DOMAIN][entry.entry_id].get(key)
+        if coordinator is None:
+            # Defensive: a missing coordinator (teardown race) must not
+            # break entity setup for the others.
+            _LOGGER.warning(
+                "Coordinator %s missing for entry %s, skipping its polling interval number",
+                key,
+                entry.entry_id,
+            )
+            continue
+        entities.append(FeellooSecondaryPollingIntervalNumber(coordinator, entry, key))
     for cat in main_coordinator.cats or []:
         if not isinstance(cat, dict):
             continue
@@ -234,5 +250,90 @@ class FeellooPollingIntervalNumber(NumberEntity):
         self.hass.config_entries.async_update_entry(
             self._entry,
             options={**self._entry.options, CONF_POLLING_INTERVAL: interval},
+        )
+        self.async_write_ha_state()
+
+
+class FeellooSecondaryPollingIntervalNumber(NumberEntity):
+    """Number entity for a secondary coordinator's polling interval (minutes).
+
+    Spec 048: one instance per secondary coordinator (activity,
+    activity_week, activity_month, territory, session). Plain NumberEntity
+    (NOT CoordinatorEntity) so the control stays usable even when the
+    coordinator's last refresh failed. Saved == effective for secondaries
+    (there is no override concept), so native_value reads the resolved
+    options directly; no extra_state_attributes — the Last Update sensor
+    carries the resolved dict for machine consumption. No switches (the
+    owner rejected disabling) and no sensor hiding: slowing a coordinator
+    never removes, hides, or blanks its entities.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = POLLING_INTERVAL_MIN
+    _attr_native_max_value = POLLING_INTERVAL_MAX
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = "box"
+
+    def __init__(
+        self,
+        coordinator: FeellooSecondaryCoordinator,
+        entry: ConfigEntry,
+        key: str,
+    ) -> None:
+        """Initialize the number entity."""
+        self._coordinator = coordinator
+        self._entry = entry
+        self._key = key
+        self._option_key = SECONDARY_POLLING_INTERVALS[key][0]
+        self._attr_translation_key = self._option_key
+        uid = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{uid}_{self._option_key}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Feelloo",
+            "manufacturer": "Feelloo",
+            "model": "Account",
+        }
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the resolved interval (saved == effective for secondaries)."""
+        return get_secondary_polling_intervals(self._entry)[self._key]
+
+    async def async_added_to_hass(self) -> None:
+        """Register a listener so the state follows changes made elsewhere."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._entry.add_update_listener(self._async_on_entry_update)
+        )
+
+    async def _async_on_entry_update(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Write state after options changed through another surface."""
+        self.async_write_ha_state()
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update the value with validation."""
+        if not isinstance(value, (int, float)):
+            raise ValueError(f"Interval must be numeric, got {type(value).__name__}")
+
+        if not value.is_integer():
+            raise ValueError("Interval must be a whole number of minutes")
+
+        interval = int(value)
+        if interval < self._attr_native_min_value or interval > self._attr_native_max_value:
+            raise ValueError(
+                f"Interval must be between {self._attr_native_min_value} "
+                f"and {self._attr_native_max_value} minutes"
+            )
+
+        # Apply first (047 §7.2 order discipline), then persist; persisting
+        # fires the update listener which re-applies idempotently.
+        await self._coordinator.async_apply_polling_interval(interval)
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._option_key: interval},
         )
         self.async_write_ha_state()

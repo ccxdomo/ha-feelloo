@@ -21,6 +21,7 @@ Intégration personnalisée pour les traceurs GPS pour chats [Feelloo](https://f
 - **Mode recherche étendue** — suivez l'activation et l'expiration de la recherche
 - **Polling rapide dynamique** — quand le mode Petite Souris est activé, le polling passe à 1 minute pour un suivi GPS et un signal en temps réel
 - **Contrôle du polling** — désactivez le polling automatique ou changez sa cadence (1 à 1440 minutes), rafraîchissez à la demande, et consultez l'âge des données — voir [Contrôle du polling](#contrôle-du-polling)
+- **Intervalles de polling secondaires** — chacun des cinq coordinateurs secondaires (activité du jour, hebdomadaire et mensuelle, territoire, session) a son propre intervalle de polling configurable (1 à 1440 minutes ; les défauts conservent les cadences actuelles)
 
 ## Installation
 
@@ -53,11 +54,11 @@ L'intégration utilise **six coordinateurs de mise à jour** pour un polling opt
 | Coordinateur | Point d'accès | Intervalle |
 |------------|----------|----------|
 | Principal | `/users/cats` + `/users/cats/{cat_id}` | **Configurable** (5 minutes par défaut ; 1 min avec le polling rapide Petite Souris) |
-| Activité | `/users/cats/{cat_id}/activity?period_type=day` | 15 minutes |
-| Activité hebdo | `/users/cats/{cat_id}/activity?period_type=week` | 1 heure |
-| Activité mensuelle | `/users/cats/{cat_id}/activity?period_type=month` | 6 heures |
-| Territoire | `/users/cats/{cat_id}/territory/paths` | 15 minutes |
-| Session | `/users/cats/{cat_id}/territory/paths/{session_id}` | 30 minutes |
+| Activité | `/users/cats/{cat_id}/activity?period_type=day` | **Configurable** (15 minutes par défaut) |
+| Activité hebdo | `/users/cats/{cat_id}/activity?period_type=week` | **Configurable** (1 heure par défaut) |
+| Activité mensuelle | `/users/cats/{cat_id}/activity?period_type=month` | **Configurable** (6 heures par défaut) |
+| Territoire | `/users/cats/{cat_id}/territory/paths` | **Configurable** (15 minutes par défaut) |
+| Session | `/users/cats/{cat_id}/territory/paths/{session_id}` | **Configurable** (30 minutes par défaut) |
 
 Tous les coordinateurs partagent un unique gestionnaire d'authentification Firebase, avec un rafraîchissement automatique du jeton toutes les 50 minutes (toujours actif, même quand le polling est désactivé, afin que les récupérations à la demande puissent toujours s'authentifier).
 
@@ -83,13 +84,18 @@ Vous contrôlez la fréquence (et l'activation) du polling automatique vers le c
 |---------|-------|------------------|
 | **Automatic Polling** (interrupteur, config) | Appareil Feelloo | ON (défaut) / OFF |
 | **Polling Interval** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **5** |
+| **Polling Interval — Activity** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **15** |
+| **Polling Interval — Activity Week** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **60** |
+| **Polling Interval — Activity Month** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **360** |
+| **Polling Interval — Territory** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **15** |
+| **Polling Interval — Session** (nombre, config) | Appareil Feelloo | 1 à 1440 minutes, défaut **30** |
 
-Les deux réglages sont aussi modifiables dans le flux d'options, et tous deux sont persistés dans les options de l'entrée de configuration (ils survivent aux redémarrages). Les changements s'appliquent à chaud — aucun redémarrage de Home Assistant ni rechargement de l'intégration n'est nécessaire.
+Tous les réglages sont aussi modifiables dans le flux d'options, et tous sont persistés dans les options de l'entrée de configuration (ils survivent aux redémarrages). Les changements s'appliquent à chaud — aucun redémarrage de Home Assistant ni rechargement de l'intégration n'est nécessaire.
 
 ### Ce que signifie « polling désactivé »
 
 - Le **coordinateur principal** (`/users/cats`) cesse de récupérer des données de lui-même. Après au plus une récupération déjà planifiée, plus aucun appel cloud automatique n'est effectué pour les données des chats.
-- **Tous les autres coordinateurs conservent leur cadence fixe** (activité 15 min / hebdo 1 h / mensuel 6 h / territoire 15 min / session 30 min).
+- **Les cinq coordinateurs secondaires continuent de tourner à leurs intervalles configurés** (activité du jour, hebdomadaire et mensuelle, territoire, session — chacun configurable de 1 à 1440 min, défauts 15 min / 1 h / 6 h / 15 min / 30 min ; voir [Intervalles de polling secondaires](#intervalles-de-polling-secondaires)). Ils lisent la dernière liste de chats connue, donc ils continuent leurs récupérations même avec le poller principal désactivé.
 - **Le rafraîchissement du jeton (maintenance de l'authentification) continue de tourner** (~50 min) afin que les rafraîchissements manuels et les commandes Petite Souris fonctionnent toujours.
 - **Petite Souris + polling désactivé** : activer la Petite Souris alors que le polling automatique est désactivé **réactive temporairement le polling à 1 minute** pour que le mode suive réellement votre chat (une ligne de journal le signale). Quand le mode se termine, le polling est désactivé à nouveau automatiquement — votre préférence est mémorisée dans les options de l'entrée et n'est jamais modifiée. Si vous changez manuellement un réglage de polling pendant que le mode est actif, votre action manuelle l'emporte (le boost temporaire s'arrête) — mettre l'interrupteur **Automatic Polling** sur OFF pendant le boost l'arrête immédiatement et l'interrupteur bascule visiblement sur OFF.
 - **L'override est visible sur l'interrupteur de polling** : pendant le boost, l'interrupteur **Automatic Polling** indique **ON** (le polling tourne réellement, à 1 minute), affiche une icône d'horloge rapide, et est étiqueté *Automatic Polling (Petite Souris)* — un contrôle qui semblerait désactivé alors que les données circulent ne peut plus se produire. Ses attributs exposent à la fois votre préférence enregistrée (`saved_polling_enabled`, `saved_polling_interval_minutes`) et ce qui est actuellement en vigueur (`effective_polling_enabled`, `effective_polling_interval_minutes`). Quand le mode se termine, l'interrupteur revient automatiquement à votre état enregistré. Le nombre **Polling Interval** affiche lui aussi la cadence effective — 1 minute pendant le boost, retour à votre valeur enregistrée à la fin — avec la préférence enregistrée visible dans `saved_polling_interval_minutes` et l'override signalé par `petite_souris_override`.
@@ -97,6 +103,43 @@ Les deux réglages sont aussi modifiables dans le flux d'options, et tous deux s
 - **Les entités conservent leurs dernières valeurs connues** : sans rafraîchissement, il n'y a pas d'échec, donc rien ne passe en « indisponible » simplement parce que le polling est désactivé. Les vrais échecs (réseau coupé, identifiants invalides) remontent exactement comme avant.
 - Le capteur de diagnostic **Last Update** se fige à la dernière récupération réussie, de sorte que l'âge des données reste toujours visible ; ses attributs affichent les réglages de polling en cours.
 - La désactivation du polling applique un rafraîchissement immédiat temporisé lors de la **réactivation** ou d'un changement d'intervalle tant que le polling est actif (des données fraîches arrivent sous ~10 s), afin que les changements prennent effet sans attendre l'ancienne minuterie.
+
+### Intervalles de polling secondaires
+
+Chacun des cinq coordinateurs secondaires a son propre intervalle de polling, configurable de **1 à 1440 minutes** (24 h) — via les cinq nombres **Polling Interval — …** sur l'appareil hub Feelloo ou dans le flux d'options. Les défauts conservent exactement les cadences de la 1.8.0 : rien ne change tant que vous ne réglez pas une valeur.
+
+| Réglage | Contrôle | Défaut |
+|---------|----------|---------|
+| **Polling Interval — Activity** | pourcentages repos/calme/action du jour et historique | 15 min |
+| **Polling Interval — Activity Week** | pourcentages hebdomadaires | 60 min |
+| **Polling Interval — Activity Month** | pourcentages mensuels | 360 min (6 h) |
+| **Polling Interval — Territory** | début/fin de la dernière sortie, nombre de sorties | 15 min |
+| **Polling Interval — Session** | durée, points, début/fin de la dernière session | 30 min |
+
+**Profil recommandé** (« interroger l'activité hebdomadaire et mensuelle une fois par jour, et le territoire aussi ») : réglez **Activity Week**, **Activity Month**, **Territory** et **Session** sur `1440`, gardez **Activity** à `15` (l'activité du jour est la seule donnée secondaire qui change d'heure en heure). Le coordinateur de session récupère la dernière session *connue*, qui ne change que lorsque le territoire se rafraîchit — une cadence de session de 30 minutes sur un territoire rafraîchi une fois par jour retéléchargerait une charge utile identique ~48×/jour. Simple recommandation : gardez **Session ≤ Territory** par cohérence ; rien ne l'impose.
+
+**Trafic cloud** (récupérations planifiées/jour, arithmétique mono-chat — chaque récupération secondaire est un GET API par chat ; une récupération principale est un GET de liste plus un GET de détail par chat) :
+
+| Coordinateur | Défauts | Profil recommandé |
+|--------------|---------|-------------------|
+| Principal (chats) | 288 (5 min) — ou **0** si désactivé via 047 | 288 / 0 |
+| Activité (jour) | 96 | 96 |
+| Activité hebdo | 24 | 1 |
+| Activité mensuelle | 4 | 1 |
+| Territoire | 96 | 1 |
+| Session | 48 | 1 |
+| **Sous-total secondaire** | **268** | **100 (−62.7 %)** |
+| **Total, principal au défaut de 5 min** | **556** | **388 (−30.2 %)** |
+| **Total, principal désactivé** | | **100 (−82.0 %)** |
+| **« Profil silencieux »** (activité aussi 1440, principal désactivé) | | **5 (−99.1 %)** |
+
+Foyers multi-chats : multipliez les lignes secondaires par le nombre de chats (et la ligne principale par 1 + chats). Le rafraîchissement du jeton Firebase (~29 requêtes/jour, `1440/50`) continue quel que soit le réglage — maintenance d'authentification sur un point d'accès distinct, non compté dans les 556.
+
+**Cadrage honnête** : chaque requête est un petit GET authentifié (quelques Ko) — ce n'est pas une économie de bande passante ni de coût par requête. Les motivations documentées sont la préoccupation de batterie du propriétaire pour l'écosystème des traceurs (énoncée comme la motivation, **pas** comme une économie mécanique revendiquée — la fréquence de lecture de l'intégration ne commande pas la cadence de rapport du collier ; la chaîne collier→passerelle→cloud est autonome, et c'est la Petite Souris qui change le comportement du collier, côté serveur) et l'évitement d'un futur rate limit (un client à ~556 requêtes/jour serait une cible plausible si Feelloo introduisait un jour une limitation d'API ; le profil recommandé réduit l'exposition secondaire de ~63 %, le profil silencieux à un seul chiffre). La revendication vérifiable, c'est le nombre de requêtes lui-même.
+
+**Ce que le ralentissement ne signifie jamais** : ralentir un coordinateur ne **supprime, ne masque, ne désactive et n'efface jamais ses entités** — elles conservent leurs dernières valeurs connues, restent disponibles, et l'âge de leurs données reste visible (l'horodatage *dernière mise à jour* de chaque entité, et l'attribut `secondary_polling_intervals` du capteur **Last Update** affichant les cadences configurées). Des données fraîches à la demande restent toujours disponibles via le bouton **Refresh Data**, quelles que soient les cadences. Une cadence de 1440 minutes s'ancre à chaque démarrage de Home Assistant — des redémarrages fréquents signifient des récupérations plus fréquentes. Une valeur stockée absente, invalide ou hors plage retombe sur le défaut de ce coordinateur (jamais sur la borne la plus proche), donc un fichier d'options partiellement modifié ne peut jamais produire de cadence surprenante.
+
+Les cinq nombres sont des cibles d'automatisation (par ex. `number.set_value`), exactement comme l'intervalle principal.
 
 ### Rafraîchissement manuel
 
@@ -209,13 +252,18 @@ Remplacez `{nom_du_chat}` par le nom de votre chat en minuscules, les espaces re
 ### Nombres
 - **Petite Souris Duration** — durée en heures utilisée quand la Petite Souris est activée
 - **Polling Interval** (config) — sur l'appareil **Feelloo** ; cadence du poller principal en minutes (1 à 1440, défaut 5). Tant qu'un override Petite Souris est actif, la valeur affichée est la cadence effective de 1 minute (`saved_polling_interval_minutes` garde votre valeur enregistrée visible, `petite_souris_override` signale l'override) ; à la fin du mode, le nombre revient automatiquement à votre valeur enregistrée
+- **Polling Interval — Activity** (config) — sur l'appareil **Feelloo** ; cadence du coordinateur d'activité du jour en minutes (1 à 1440, défaut 15)
+- **Polling Interval — Activity Week** (config) — cadence du coordinateur d'activité hebdomadaire en minutes (1 à 1440, défaut 60)
+- **Polling Interval — Activity Month** (config) — cadence du coordinateur d'activité mensuelle en minutes (1 à 1440, défaut 360)
+- **Polling Interval — Territory** (config) — cadence du coordinateur de territoire en minutes (1 à 1440, défaut 15)
+- **Polling Interval — Session** (config) — cadence du coordinateur de session en minutes (1 à 1440, défaut 30)
 
 ### Bouton
 - **Ring** — déclenche la sonnerie du collier (uniquement si `can_ring` est vrai)
 - **Refresh Data** — sur l'appareil **Feelloo** ; récupère immédiatement toutes les données Feelloo (tous les coordinateurs), quel que soit l'état du polling
 
 ### Capteurs (au niveau de l'appareil, sur l'appareil hub **Feelloo**)
-- **Last Update** (diagnostic) — horodatage de la dernière récupération réussie des chats ; se fige quand le polling est désactivé, afin que l'âge des données reste visible. Attributs : `polling_enabled`, `polling_interval_minutes` (l'état **effectif** — pendant un override Petite Souris, ils affichent la cadence temporaire de 1 minute), et `petite_souris_override` (`true` pendant que l'override force temporairement le polling à 1 minute)
+- **Last Update** (diagnostic) — horodatage de la dernière récupération réussie des chats ; se fige quand le polling est désactivé, afin que l'âge des données reste visible. Attributs : `polling_enabled`, `polling_interval_minutes` (l'état **effectif** — pendant un override Petite Souris, ils affichent la cadence temporaire de 1 minute), `petite_souris_override` (`true` pendant que l'override force temporairement le polling à 1 minute), et `secondary_polling_intervals` (les cinq cadences secondaires configurées, en minutes)
 
 ## Registre des appareils
 
@@ -224,7 +272,7 @@ Chaque chat est enregistré comme appareil avec :
 - Fabricant : Feelloo
 - Modèle : Cat Tracker
 
-Chaque compte configuré reçoit également un appareil hub **Feelloo** (modèle : Account) hébergeant les entités du compte : **Automatic Polling**, **Polling Interval**, **Refresh Data** et **Last Update**.
+Chaque compte configuré reçoit également un appareil hub **Feelloo** (modèle : Account) hébergeant les entités du compte : **Automatic Polling**, **Polling Interval**, les cinq nombres **Polling Interval — …**, **Refresh Data** et **Last Update**.
 
 ## Prérequis
 

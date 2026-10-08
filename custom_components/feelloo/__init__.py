@@ -10,7 +10,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DOMAIN, get_polling_settings
+from .const import (
+    DOMAIN,
+    SECONDARY_POLLING_INTERVALS,
+    get_polling_settings,
+    get_secondary_polling_intervals,
+)
 from .coordinator import FeellooAuthManager, FeellooMainCoordinator, FeellooActivityCoordinator, FeellooTerritoryCoordinator, FeellooSessionCoordinator, FeellooActivityWeekCoordinator, FeellooActivityMonthCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,6 +165,18 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         await hass.config_entries.async_reload(entry.entry_id)
         return
     await data["main"].async_apply_polling_settings(*get_polling_settings(entry))
+
+    # Secondary polling intervals (Spec 048): apply each coordinator's
+    # resolved interval live, in the fixed order. Unchanged values are
+    # idempotent no-ops, so a re-fired listener is harmless. A missing
+    # coordinator (teardown race) is skipped defensively.
+    resolved_secondary = get_secondary_polling_intervals(entry)
+    for key in SECONDARY_POLLING_INTERVALS:
+        coordinator = data.get(key)
+        if coordinator is None:
+            _LOGGER.warning("Coordinator %s missing while applying polling intervals", key)
+            continue
+        await coordinator.async_apply_polling_interval(resolved_secondary[key])
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -22,11 +22,6 @@ from .const import (
     FIREBASE_SIGNIN_URL,
     FIREBASE_REFRESH_URL,
     BASE_URL,
-    ACTIVITY_UPDATE_INTERVAL,
-    ACTIVITY_WEEK_UPDATE_INTERVAL,
-    ACTIVITY_MONTH_UPDATE_INTERVAL,
-    TERRITORY_UPDATE_INTERVAL,
-    SESSION_UPDATE_INTERVAL,
     TOKEN_REFRESH_INTERVAL,
     FAST_POLLING_INTERVAL,
     CONF_EMAIL,
@@ -41,6 +36,7 @@ from .const import (
     ENDPOINT_TERRITORY_PATH,
     PETITE_SOURIS_OVERRIDE_INTERVAL_MINUTES,
     get_polling_settings,
+    get_secondary_polling_intervals,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -525,20 +521,58 @@ class FeellooMainCoordinator(DataUpdateCoordinator):
         return {cat.get("_id"): cat for cat in self.cats if cat.get("_id")}
 
 
-class FeellooActivityCoordinator(DataUpdateCoordinator):
-    """Coordinator for activity data — polls /users/cats/{cat_id}/activity every 15 minutes."""
+class FeellooSecondaryCoordinator(DataUpdateCoordinator):
+    """Shared base for the five secondary coordinators (Spec 048).
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
-        """Initialize the coordinator."""
+    Resolves the polling interval from the config entry options — the
+    default per coordinator equals the fixed cadence shipped in 1.8.0,
+    so an install with no options stored behaves exactly as before — and
+    supports applying a new interval live, without a restart or reload.
+    Subclasses keep their own fetch bodies and getters; only the
+    interval resolution and live-apply semantics live here, so they
+    exist in exactly one place.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager, key: str) -> None:
+        """Initialize the coordinator with its configurable interval."""
         self.entry = entry
         self.auth = auth
-
+        self.polling_interval_minutes = get_secondary_polling_intervals(entry)[key]
         super().__init__(
             hass,
             _LOGGER,
-            name=f"{DOMAIN}_activity",
-            update_interval=ACTIVITY_UPDATE_INTERVAL,
+            name=f"{DOMAIN}_{key}",
+            update_interval=timedelta(minutes=self.polling_interval_minutes),
         )
+
+    async def async_apply_polling_interval(self, interval_minutes: int) -> None:
+        """Apply this coordinator's interval at runtime (no restart).
+
+        Case table (Spec 048 §5): an unchanged value is an idempotent
+        no-op; a changed value sets the new cadence and requests one
+        debounced refresh, which cancels the pending old-cadence timer
+        inside the refresh so the new cadence arms immediately (at most
+        one already-scheduled fetch could otherwise fire at the old
+        cadence first — the bounded straggler). Never a reload for
+        options-only changes. No interaction with the Petite-Souris
+        override: that touches the main coordinator only, and secondaries
+        keep their cadences while it runs.
+        """
+        self.polling_interval_minutes = interval_minutes
+        new_update_interval = timedelta(minutes=interval_minutes)
+        if self.update_interval == new_update_interval:
+            # Nothing observable changes — idempotent no-op.
+            return
+        self.update_interval = new_update_interval
+        await self.async_request_refresh()
+
+
+class FeellooActivityCoordinator(FeellooSecondaryCoordinator):
+    """Coordinator for activity data — polls /users/cats/{cat_id}/activity (interval configurable, default 15 minutes)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass, entry, auth, "activity")
 
     async def _async_update_data(self) -> dict:
         """Fetch activity data for all cats."""
@@ -575,20 +609,12 @@ class FeellooActivityCoordinator(DataUpdateCoordinator):
         return self.data.get("activities", {}).get(cat_uid)
 
 
-class FeellooActivityWeekCoordinator(DataUpdateCoordinator):
-    """Coordinator for weekly activity data — polls every hour."""
+class FeellooActivityWeekCoordinator(FeellooSecondaryCoordinator):
+    """Coordinator for weekly activity data — polls /users/cats/{cat_id}/activity weekly (interval configurable, default 60 minutes)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
         """Initialize the coordinator."""
-        self.entry = entry
-        self.auth = auth
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_activity_week",
-            update_interval=ACTIVITY_WEEK_UPDATE_INTERVAL,
-        )
+        super().__init__(hass, entry, auth, "activity_week")
 
     async def _async_update_data(self) -> dict:
         """Fetch weekly activity data for all cats."""
@@ -628,20 +654,12 @@ class FeellooActivityWeekCoordinator(DataUpdateCoordinator):
         return self.data.get("activities", {}).get(cat_uid)
 
 
-class FeellooActivityMonthCoordinator(DataUpdateCoordinator):
-    """Coordinator for monthly activity data — polls every 6 hours."""
+class FeellooActivityMonthCoordinator(FeellooSecondaryCoordinator):
+    """Coordinator for monthly activity data — polls /users/cats/{cat_id}/activity monthly (interval configurable, default 360 minutes)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
         """Initialize the coordinator."""
-        self.entry = entry
-        self.auth = auth
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_activity_month",
-            update_interval=ACTIVITY_MONTH_UPDATE_INTERVAL,
-        )
+        super().__init__(hass, entry, auth, "activity_month")
 
     async def _async_update_data(self) -> dict:
         """Fetch monthly activity data for all cats."""
@@ -681,20 +699,12 @@ class FeellooActivityMonthCoordinator(DataUpdateCoordinator):
         return self.data.get("activities", {}).get(cat_uid)
 
 
-class FeellooTerritoryCoordinator(DataUpdateCoordinator):
-    """Coordinator for territory data — polls /users/cats/{cat_id}/territory/paths every 15 minutes."""
+class FeellooTerritoryCoordinator(FeellooSecondaryCoordinator):
+    """Coordinator for territory data — polls /users/cats/{cat_id}/territory/paths (interval configurable, default 15 minutes)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
         """Initialize the coordinator."""
-        self.entry = entry
-        self.auth = auth
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_territory",
-            update_interval=TERRITORY_UPDATE_INTERVAL,
-        )
+        super().__init__(hass, entry, auth, "territory")
 
     async def _async_update_data(self) -> dict:
         """Fetch territory paths for all cats."""
@@ -743,20 +753,12 @@ class FeellooTerritoryCoordinator(DataUpdateCoordinator):
         return sorted_paths[0] if sorted_paths else None
 
 
-class FeellooSessionCoordinator(DataUpdateCoordinator):
-    """Coordinator for territory session details — polls every 30 minutes."""
+class FeellooSessionCoordinator(FeellooSecondaryCoordinator):
+    """Coordinator for territory session details — polls /users/cats/{cat_id}/territory/paths/{session_id} (interval configurable, default 30 minutes)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, auth: FeellooAuthManager) -> None:
         """Initialize the coordinator."""
-        self.entry = entry
-        self.auth = auth
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_session",
-            update_interval=SESSION_UPDATE_INTERVAL,
-        )
+        super().__init__(hass, entry, auth, "session")
 
     async def _async_update_data(self) -> dict:
         """Fetch territory session details for all cats."""
